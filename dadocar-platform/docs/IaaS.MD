@@ -109,6 +109,49 @@ When refreshing this section, run `az resource list -g rg-dadocar-dev-brs -o tab
 | Query events | Event Hub `query-events` | ⏳ not yet wired |
 | Audit logs | App Insights via `context.log()` calls | ✅ wired today |
 
+### 2.7 Observability & log access
+
+App Insights `dadocar-dev-appi-brs` is **workspace-based** — telemetry is stored in the Log Analytics workspace `dadocar-dev-log-brs`, not in classic App Insights storage. This matters because the **table names differ from the classic App Insights schema**, and the wrong table name silently returns zero rows.
+
+| Telemetry kind | Classic table (don't use here) | Workspace-based table (use this) |
+|---|---|---|
+| HTTP requests to the Function App | `requests` | `AppRequests` |
+| `context.log()` + host runtime messages | `traces` | `AppTraces` |
+| Outbound HTTP calls (Infocar etc.) | `dependencies` | `AppDependencies` |
+| Unhandled errors | `exceptions` | `AppExceptions` |
+| Custom metrics | `customMetrics` | `AppMetrics` |
+| Custom events | `customEvents` | `AppEvents` |
+
+Direct CLI access (the SP needs `Log Analytics Reader` or higher on the workspace; the dev deployer already has `Contributor`):
+
+```bash
+WS_ID=$(az monitor log-analytics workspace show -g rg-dadocar-dev-brs -n dadocar-dev-log-brs --query customerId -o tsv)
+
+# Function App request log, last hour
+az monitor log-analytics query --workspace "$WS_ID" --analytics-query \
+  'AppRequests | where TimeGenerated > ago(1h) | order by TimeGenerated desc | take 50
+   | project TimeGenerated, Name, ResultCode, DurationMs, AppRoleName' -o table
+
+# context.log() output + the host's per-invocation start/finish messages
+az monitor log-analytics query --workspace "$WS_ID" --analytics-query \
+  'AppTraces | where TimeGenerated > ago(1h) | order by TimeGenerated desc | take 50
+   | project TimeGenerated, Message, SeverityLevel' -o table
+
+# Outbound dependency calls (Key Vault, Infocar, etc.) — once dependency
+# tracking is enabled via the OpenTelemetry distro (not yet wired in MVP).
+az monitor log-analytics query --workspace "$WS_ID" --analytics-query \
+  'AppDependencies | where TimeGenerated > ago(1h) | order by TimeGenerated desc | take 20
+   | project TimeGenerated, Name, Target, ResultCode, DurationMs' -o table
+```
+
+Portal path: **App Insights `dadocar-dev-appi-brs` → Logs**, then run any `App*` query. The portal's "transactions search" and "live metrics" surfaces both work; the *classic* logs blade does not because there's no classic backing store.
+
+Gotcha: `az monitor app-insights query` targets the classic schema and will return empty for a workspace-based component. Always query through `az monitor log-analytics query` against the workspace customer ID.
+
+**Vercel-side logs** (separate from Azure) live in the Vercel runtime logs for the `dadocar1` project. Pull with `vercel logs --no-follow --since 30m -x` from inside the project root, or via the Deployments tab.
+
+The Function App's host invocation traces appear automatically. App-code `context.log()` calls also flow through `AppTraces`. Outbound dependency tracking (Infocar latency per call) and exception capture require the `@azure/monitor-opentelemetry` distro — not yet wired in MVP; see section 4.5 when adding it.
+
 ---
 
 ## 3. Diagram briefs
@@ -211,6 +254,28 @@ Mark "future" edges (dashed):
 
 Show how the secrets reach Infocar: KV → Function App (DefaultAzureCredential) → Infocar `POST /Token/GerarToken` → bearer cached in-process. Annotate the cache TTL.
 
+### Brief 3.8 — Telemetry topology
+
+**Context**: see section 2.7. App Insights `dadocar-dev-appi-brs` is workspace-based; telemetry lives in `dadocar-dev-log-blr` and is queried via the `App*` tables.
+
+**Prompt**: Generate a Mermaid `graph LR` showing how observability data flows today and where each table sits. Nodes:
+- Function App `dadocar-dev-func-enrich-brs` (writer)
+- App Insights component `dadocar-dev-appi-brs` (ingestion endpoint, no backing store)
+- Log Analytics workspace `dadocar-dev-log-brs` (storage)
+- Operator / Portal (reader)
+
+Edges:
+- Function App → App Insights: `APPLICATIONINSIGHTS_CONNECTION_STRING` env var, labeled `instrumentation key …28ac…`
+- App Insights → Log Analytics: `workspace-based ingestion`, with the table mapping (`AppRequests`, `AppTraces`, `AppDependencies`, `AppExceptions`, `AppMetrics`, `AppEvents`)
+- Operator → Log Analytics: `az monitor log-analytics query`, `Portal Logs blade`
+- Operator → App Insights: `Portal Live Metrics`, `Transactions Search`
+
+Mark dashed edges:
+- Function App → App Insights for `AppDependencies` (planned — requires `@azure/monitor-opentelemetry`, not yet wired)
+- Function App → App Insights for `AppExceptions` (same)
+
+Add a callout box: "Querying via `az monitor app-insights query` targets the classic schema and returns empty for workspace-based components. Always use `az monitor log-analytics query` against the workspace customer ID."
+
 ---
 
 ## 4. Extension patterns
@@ -252,6 +317,21 @@ If the new resource needs the Function App MI to read/write it, wire the role as
 - Do not add per-customer logic to the enrichment function — it's a fan-out worker, not a billing or tenant boundary. Customer routing belongs in APIM products + subscriptions (future work).
 - Do not commit vendor credentials to the repo. Always: KV + DefaultAzureCredential.
 
+### 4.5 Wiring dependency + exception tracking (future)
+
+`AppRequests` and `AppTraces` flow automatically. `AppDependencies` (outbound HTTP timing per vendor) and `AppExceptions` (auto-captured thrown errors) require the OpenTelemetry distro. When ready:
+
+1. `npm install @azure/monitor-opentelemetry` in `services/enrichment-function/`.
+2. In every entry file (today only `src/functions/vehicleLookup.js`), add at the top:
+   ```js
+   const { useAzureMonitor } = require("@azure/monitor-opentelemetry");
+   useAzureMonitor();
+   ```
+3. Redeploy with `func azure functionapp publish dadocar-dev-func-enrich-brs --javascript`.
+4. Update section 2.7 (table mapping) and brief 3.8 (promote the dashed edges to solid).
+
+Cost note: dependency + exception telemetry roughly doubles ingestion volume vs. requests+traces alone. Adjust the `host.json` sampling settings (already configured to exclude `Request` from sampling) if dev costs spike.
+
 ---
 
 ## 5. Updating this document
@@ -267,6 +347,7 @@ This file must be updated alongside any change in the following categories:
 | Renaming resources or repos | every place the literal name appears |
 | Production environment lands | new "Current state — prod" section, parallel to section 2 |
 | CI/CD pipelines land | section 3.6 update — promote dashed "future" edges to solid |
+| Telemetry config changes (sampling, OTel distro, classic vs workspace) | 2.7 table mapping + 3.8 diagram brief + 4.5 wiring steps |
 
 When in doubt: search this file for the old name or pattern before deciding what changes.
 
