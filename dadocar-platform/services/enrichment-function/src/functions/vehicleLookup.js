@@ -12,6 +12,18 @@
 //                                    ready providers". Unknown ids are
 //                                    silently dropped (the response notes
 //                                    which sources actually ran).
+//   ?fresh=1                      — bypass the Cosmos `vehicles` cache and
+//                                    force a fresh provider fan-out. The
+//                                    fresh response is still cached on
+//                                    success so the next call benefits.
+//
+// Cache (plate mode only today):
+//   - Read: Cosmos `vehicles` container, PK = plate. Hit → response is
+//     returned immediately with `cached: true` + `cached_at`. Miss →
+//     normal provider fan-out.
+//   - Write: on a successful fan-out, fire-and-forget upsert.
+//   - VIN mode skips the cache for now (planned: `vehicle_index` lookup
+//     resolves VIN → plate, then read `vehicles`).
 //
 // Auth: authLevel "function". Caller supplies the function key as
 // `?code=...` or the `x-functions-key` header. APIM will eventually
@@ -23,6 +35,7 @@
 const { app } = require("@azure/functions");
 const providers = require("../providers");
 const { PLATE_RE, VIN_RE, normalizePlate, normalizeVin } = require("../lib/validation");
+const cache = require("../lib/cache");
 
 /**
  * Shared lookup handler used by both the plate and the chassi routes.
@@ -43,6 +56,25 @@ async function handleLookup(request, context, mode /* "plate" | "vin" */) {
           : "Chassi deve ter 17 caracteres alfanuméricos (sem I, O ou Q).",
       },
     };
+  }
+
+  const fresh = request.query.get("fresh") === "1";
+
+  // Cache-aside read. Plate mode only for now; VIN mode goes straight
+  // to providers until the vehicle_index lookup is wired.
+  if (mode === "plate" && !fresh) {
+    const hit = await cache.getCachedByPlate(raw);
+    if (hit) {
+      context.log(`vehicle plate q=${raw.slice(0, 3)}*** cache=HIT cached_at=${hit.fetched_at}`);
+      return {
+        status: 200,
+        jsonBody: {
+          ...hit.payload,
+          cached:    true,
+          cached_at: hit.fetched_at,
+        },
+      };
+    }
   }
 
   // Resolve the source subset. Empty / missing means "all ready providers".
@@ -103,19 +135,29 @@ async function handleLookup(request, context, mode /* "plate" | "vin" */) {
     };
   });
 
-  context.log(`vehicle ${mode} q=${raw.slice(0, 3)}*** ran=${ready.length} ok=${sources.filter(s => s.ok).length}`);
+  const okCount = sources.filter(s => s.ok).length;
+  context.log(`vehicle ${mode} q=${raw.slice(0, 3)}*** ran=${ready.length} ok=${okCount} cache=MISS`);
 
-  return {
-    status: 200,
-    jsonBody: {
-      query:               { kind: mode, value: raw },
-      generated_at:        new Date().toISOString(),
-      ran_providers:       ready.map(p => p.id),
-      skipped_providers:   skipped,
-      unknown_sources:     unknownIds,
-      sources,
-    },
+  const responseBody = {
+    query:               { kind: mode, value: raw },
+    generated_at:        new Date().toISOString(),
+    ran_providers:       ready.map(p => p.id),
+    skipped_providers:   skipped,
+    unknown_sources:     unknownIds,
+    sources,
+    cached:              false,
   };
+
+  // Fire-and-forget cache write. Only on a successful plate fan-out — we
+  // don't want to cache "all providers failed" responses (next call should
+  // retry). VIN mode doesn't write yet.
+  if (mode === "plate" && okCount > 0) {
+    cache.setCachedByPlate(raw, responseBody).catch((err) =>
+      context.log(`[cache] write threw outside fail-open: ${err && err.message}`),
+    );
+  }
+
+  return { status: 200, jsonBody: responseBody };
 }
 
 app.http("vehicleLookupPlate", {

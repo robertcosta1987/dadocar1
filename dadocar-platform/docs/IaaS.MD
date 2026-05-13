@@ -105,7 +105,8 @@ When refreshing this section, run `az resource list -g rg-dadocar-dev-brs -o tab
 |---|---|---|
 | Vendor credentials | Key Vault | ✅ wired today |
 | Infocar bearer token | In-process cache, per Function instance | ✅ wired today |
-| Vehicle lookup responses | Cosmos `vehicles` container (PK `/placa`) | ⏳ not yet wired |
+| Vehicle lookup responses (plate mode) | Cosmos `vehicles` container, PK `/placa`, TTL 30d | ✅ wired today (cache-aside, fail-open) |
+| Vehicle lookup responses (VIN mode) | Cosmos `vehicle_index` → `vehicles` (resolve VIN→plate first) | ⏳ not yet wired |
 | Query events | Event Hub `query-events` | ⏳ not yet wired |
 | Audit logs | App Insights via `context.log()` calls | ✅ wired today |
 
@@ -254,7 +255,25 @@ Mark "future" edges (dashed):
 
 Show how the secrets reach Infocar: KV → Function App (DefaultAzureCredential) → Infocar `POST /Token/GerarToken` → bearer cached in-process. Annotate the cache TTL.
 
-### Brief 3.8 — Telemetry topology
+### Brief 3.8 — Cache-aside flow for plate lookups
+
+**Context**: see section 2.6 (data flow) — plate-mode lookups read/write Cosmos `vehicles`. Cache helper is `src/lib/cache.js`; integration is in `src/functions/vehicleLookup.js`.
+
+**Prompt**: Generate a Mermaid `sequenceDiagram` showing the three states of a plate lookup against the cache. Actors:
+- Vercel proxy
+- Function App handler (`vehicleLookup.js`)
+- Cosmos `vehicles` container
+- Provider (`infocar`)
+- Infocar API
+
+Show three flows side-by-side or as `alt` branches:
+1. **MISS** — handler reads `vehicles` PK=plate → 404 → fan-out to providers → Infocar token + lookup → upsert into `vehicles` (fire-and-forget) → return `{cached: false, sources: [...]}`. Wall time ~3-5s on cold start, ~700ms warm.
+2. **HIT** — handler reads `vehicles` PK=plate → point-read returns doc → return `{cached: true, cached_at, sources: [...]}` directly. No Infocar call. Wall time ~500ms.
+3. **`?fresh=1`** — handler skips cache read, runs MISS path, still writes on success. For debug + cache poisoning recovery.
+
+Annotate edges with the actual code paths: `cache.getCachedByPlate(plate)`, `cache.setCachedByPlate(plate, payload)`. Mark the cache write as `fire-and-forget — never fails the response`. Add a note that read errors (non-404) also fail-open: log + treat as miss.
+
+### Brief 3.9 — Telemetry topology
 
 **Context**: see section 2.7. App Insights `dadocar-dev-appi-brs` is workspace-based; telemetry lives in `dadocar-dev-log-blr` and is queried via the `App*` tables.
 
@@ -328,9 +347,27 @@ If the new resource needs the Function App MI to read/write it, wire the role as
    useAzureMonitor();
    ```
 3. Redeploy with `func azure functionapp publish dadocar-dev-func-enrich-brs --javascript`.
-4. Update section 2.7 (table mapping) and brief 3.8 (promote the dashed edges to solid).
+4. Update section 2.7 (table mapping) and brief 3.9 (promote the dashed edges to solid).
 
 Cost note: dependency + exception telemetry roughly doubles ingestion volume vs. requests+traces alone. Adjust the `host.json` sampling settings (already configured to exclude `Request` from sampling) if dev costs spike.
+
+### 4.6 Wiring the VIN/chassi cache (future)
+
+Plate-mode cache is wired today via `vehicles` PK `/placa`. VIN-mode bypasses the cache. Schema already supports the proper pattern via `vehicle_index` (PK `/lookup_key`, TTL 30d).
+
+Recommended pattern when ready:
+
+1. On a successful **plate** fan-out, write **both**:
+   - `vehicles` doc: `{ id: plate, placa: plate, payload, fetched_at }` (already done)
+   - `vehicle_index` doc(s): one per cross-reference, e.g. `{ id: vin, lookup_key: vin, plate, fetched_at }` so a future VIN lookup can resolve to the plate.
+2. On a **VIN** lookup:
+   - Read `vehicle_index` PK=VIN → get the plate.
+   - Read `vehicles` PK=plate → return cached payload with `cached: true`.
+   - Either lookup misses → fan out to providers via VIN; on the response, extract the plate from `data.dados.dadosDoVeiculo.placa` and write both docs.
+
+The cross-reference write should be fire-and-forget (same fail-open semantics as the plate cache). Extract the plate from the provider response defensively — providers that don't return it just skip the index write.
+
+Watch for: two providers returning **different** plates for the same VIN. Today's data shows one source, so this is theoretical, but when a second vehicle-data provider lands, decide upfront whether to (a) pick one as authoritative, (b) cache under both keys, or (c) refuse to write the index until they agree. Recommend (a) with `infocar` as default, configurable per provider.
 
 ---
 
@@ -347,7 +384,8 @@ This file must be updated alongside any change in the following categories:
 | Renaming resources or repos | every place the literal name appears |
 | Production environment lands | new "Current state — prod" section, parallel to section 2 |
 | CI/CD pipelines land | section 3.6 update — promote dashed "future" edges to solid |
-| Telemetry config changes (sampling, OTel distro, classic vs workspace) | 2.7 table mapping + 3.8 diagram brief + 4.5 wiring steps |
+| Telemetry config changes (sampling, OTel distro, classic vs workspace) | 2.7 table mapping + 3.9 diagram brief + 4.5 wiring steps |
+| Cache layer wiring changes (containers, TTL, miss/hit semantics, VIN mode) | 2.6 row + 3.8 diagram brief + 4.6 extension pattern |
 
 When in doubt: search this file for the old name or pattern before deciding what changes.
 
