@@ -298,19 +298,39 @@ function humanLabel(key) {
 
 function formatBrlValor(raw) {
   if (raw === null || raw === undefined || raw === "") return "—";
-  // Infocar sometimes returns "R$ 40.326,00" (already formatted) or 40326 (number).
   if (typeof raw === "number") {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(raw);
   }
-  if (typeof raw === "string") {
-    if (raw.startsWith("R$")) return raw;
-    const asNumber = Number(raw.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", "."));
-    if (Number.isFinite(asNumber)) {
-      return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(asNumber);
-    }
-    return raw;
+  if (typeof raw !== "string") return String(raw);
+  if (raw.trim().startsWith("R$")) return raw;          // already pre-formatted
+
+  // Strip everything that isn't a digit, separator, or sign.
+  const clean = raw.replace(/[^\d,.\-]/g, "");
+  if (!clean) return raw;
+
+  // Decide decimal separator by whichever appears LAST. Handles both
+  // US-style "46,841.00" and BR-style "46.841,00" from Infocar.
+  const lastComma = clean.lastIndexOf(",");
+  const lastDot   = clean.lastIndexOf(".");
+  let normalized;
+  if (lastComma === -1 && lastDot === -1) {
+    normalized = clean;
+  } else if (lastComma > lastDot) {
+    // BR — dots are thousands separators, comma is decimal.
+    normalized = clean.replace(/\./g, "").replace(",", ".");
+  } else if (lastDot > lastComma && lastComma !== -1) {
+    // US — commas are thousands, dot is decimal.
+    normalized = clean.replace(/,/g, "");
+  } else {
+    // Single dot only — ambiguous. Treat 3-digit tail as thousands
+    // (e.g. "70.815" → 70815, not 70.815), shorter tail as decimal
+    // ("70.81" → 70.81).
+    const tail = clean.length - lastDot - 1;
+    normalized = tail === 3 ? clean.replace(".", "") : clean;
   }
-  return String(raw);
+  const n = Number(normalized);
+  if (!Number.isFinite(n)) return raw;
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
 }
 
 // ─── Lightweight JSON syntax highlighter ──────────────────────────────────
