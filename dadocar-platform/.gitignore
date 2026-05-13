@@ -4,8 +4,14 @@
 !.env.example
 *.env.local
 *.bicepparam.local
-*secret*
-*credential*
+# Common credential-dump filenames. Narrow patterns so they don't catch
+# legitimate source code that *handles* secrets (e.g. src/lib/secrets.js).
+*.secret
+*.secrets
+secrets.json
+credentials.json
+*-credentials.json
+*.credentials
 
 # ─── Bicep build artifacts ─────────────────────────────────────────────────
 *.bicep.json
