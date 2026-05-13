@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dadocar · Infocar test</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">dadocar</span>
+      <span class="brand-tag">/ infocar test</span>
+    </div>
+    <button id="themeToggle" type="button" class="theme-toggle" aria-label="Alternar tema">
+      <span data-light-only>☀</span><span data-dark-only>☾</span>
+    </button>
+  </header>
+
+  <main>
+    <!-- Gate prompt — shown when sessionStorage has no token. Hidden once set. -->
+    <section id="gateCard" class="card gate" hidden>
+      <p class="gate-title">Acesso restrito</p>
+      <p class="gate-subtitle">
+        Esta instância está protegida. Cole o token compartilhado para continuar.
+      </p>
+      <form id="gateForm">
+        <input type="password" id="gateInput" autocomplete="off" spellcheck="false"
+               placeholder="token" aria-label="Token de acesso" />
+        <button type="submit">Entrar</button>
+      </form>
+      <p id="gateError" class="validation"></p>
+    </section>
+
+    <section class="card" id="queryCard">
+      <div class="mode-tabs" role="tablist" aria-label="Tipo de consulta">
+        <button type="button" role="tab" data-mode="plate" class="active" aria-selected="true">Placa</button>
+        <button type="button" role="tab" data-mode="chassi" aria-selected="false">Chassi</button>
+      </div>
+
+      <form id="queryForm" novalidate>
+        <label for="queryInput" id="queryLabel">Placa do veículo</label>
+        <input
+          type="text"
+          id="queryInput"
+          name="q"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="EFS8F45"
+          autocapitalize="characters"
+        />
+        <p id="validationMsg" class="validation"></p>
+
+        <button type="submit" id="submitBtn" disabled>
+          <span class="btn-label">Consultar</span>
+          <span class="btn-spinner" aria-hidden="true"></span>
+        </button>
+      </form>
+    </section>
+
+    <section id="error" class="card error" hidden></section>
+
+    <section id="result" class="card result" hidden>
+      <div class="meta" id="resultMeta"></div>
+
+      <h2>Dados do Veículo</h2>
+      <dl id="dadosGrid" class="data-grid"></dl>
+
+      <h2>Preços FIPE</h2>
+      <div id="fipeList" class="fipe-list"></div>
+
+      <details class="raw-json">
+        <summary>
+          <span>JSON Bruto</span>
+          <button type="button" id="copyJsonBtn" class="copy-btn">Copiar</button>
+        </summary>
+        <pre><code id="rawJson"></code></pre>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <small>
+      Ferramenta interna de validação. Sem persistência. Proxy local em <code>localhost:3001</code>.
+    </small>
+  </footer>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

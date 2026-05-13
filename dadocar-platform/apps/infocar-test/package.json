@@ -1,0 +1,16 @@
+{
+  "name": "dadocar-infocar-test",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local proxy + frontend to inspect Infocar API responses. No Azure involvement.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/proxy.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}
