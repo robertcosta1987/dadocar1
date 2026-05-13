@@ -1,0 +1,19 @@
+{
+  "name": "dadocar-enrichment-function",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Azure Function App: vehicle-data aggregator. Looks up a Brazilian plate or VIN against any number of registered providers and returns a unified JSON.",
+  "main": "src/functions/*.js",
+  "scripts": {
+    "start": "func start",
+    "test": "echo \"no unit tests yet\" && exit 0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.1",
+    "@azure/identity": "^4.4.1",
+    "@azure/keyvault-secrets": "^4.8.0"
+  }
+}

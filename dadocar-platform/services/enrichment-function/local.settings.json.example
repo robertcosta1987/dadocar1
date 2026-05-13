@@ -1,0 +1,15 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "FUNCTIONS_EXTENSION_VERSION": "~4",
+
+    "// KEYVAULT_URL is REQUIRED. Points at the dev Key Vault provisioned by Bicep.": "",
+    "KEYVAULT_URL": "https://dadocardevkvbrso3uo.vault.azure.net/"
+  },
+  "Host": {
+    "LocalHttpPort": 7071,
+    "CORS": "http://localhost:3000,http://localhost:3001"
+  }
+}

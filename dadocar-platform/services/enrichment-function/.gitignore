@@ -1,0 +1,13 @@
+# Azure Functions local config — contains secrets, never commit.
+local.settings.json
+
+# Node
+node_modules/
+
+# Build artifacts
+bin/
+obj/
+
+# Editor
+.vscode/
+.idea/

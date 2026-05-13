@@ -1,0 +1,8 @@
+# Files excluded when the Function App is deployed (`func azure functionapp publish`).
+*.md
+.git*
+.vscode/
+local.settings.json
+test/
+__tests__/
+README*
