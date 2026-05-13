@@ -1,14 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// proxy.js — local Infocar proxy (Express)
+// proxy.js — local Vercel-equivalent proxy (Express)
 //
-// For local dev only. The Vercel deployment uses serverless functions under
-// api/ — see vercel.json. Both paths share lib/infocar.js.
+// For local dev only. Mirrors the Vercel serverless functions:
+//   GET /api/healthz                          — local; reports gate + agg config
+//   GET /api/providers                        — proxies to the Function App
+//   GET /api/vehicle/plate/:plate             — proxies to the Function App
+//   GET /api/vehicle/chassi/:chassi           — proxies to the Function App
 //
-// - Reads INFOCAR_* from env. If missing → /api/* returns 503.
-// - Optional gate: if DADOCAR_GATE_SECRET is set, /api/* requires
-//   `Authorization: Bearer <secret>`. If unset, the local proxy is open
-//   (convenient for `localhost` dev; the Vercel deploy always enforces).
-// - Serves the static frontend from ../web at the root path.
+// The actual vendor calls (Infocar, etc.) happen inside the Function App.
+// This proxy just adds the shared-secret gate and forwards. Env needed:
+//   DADOCAR_GATE_SECRET   shared-secret bearer for the UI (optional locally)
+//   AZURE_FUNCTION_URL    https://dadocar-dev-func-enrich-brs.azurewebsites.net
+//   AZURE_FUNCTION_KEY    function-app default key
 // ─────────────────────────────────────────────────────────────────────────────
 
 "use strict";
@@ -20,12 +23,12 @@ const express = require("express");
 const cors    = require("cors");
 
 const {
-  credentialsAreSet,
-  infocarGet,
+  isReady,
+  callAggregator,
   maskTail,
   PLATE_RE,
   VIN_RE,
-} = require("../lib/infocar");
+} = require("../lib/aggregator");
 
 // ─── Light .env loader. Keep deps to express+cors only.
 (function loadDotenv() {
@@ -57,7 +60,7 @@ function constantTimeEqual(a, b) {
 
 function gateCheck(req, res, next) {
   const expected = process.env.DADOCAR_GATE_SECRET || "";
-  if (!expected) return next();              // gate disabled locally
+  if (!expected) return next();
   const auth = req.header("authorization") || "";
   const presented = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
   if (!constantTimeEqual(presented, expected)) {
@@ -67,6 +70,14 @@ function gateCheck(req, res, next) {
     });
   }
   next();
+}
+
+function ensureAggregator(_req, res, next) {
+  if (isReady()) return next();
+  return res.status(503).json({
+    error:   "aggregator_unconfigured",
+    message: "Set AZURE_FUNCTION_URL and AZURE_FUNCTION_KEY in apps/infocar-test/.env and restart the proxy.",
+  });
 }
 
 const app = express();
@@ -83,47 +94,51 @@ app.use(cors({
 
 app.use(express.static(path.resolve(__dirname, "..", "web")));
 
-function ensureCreds(_req, res, next) {
-  if (credentialsAreSet()) return next();
-  return res.status(503).json({
-    error:   "credentials_missing",
-    message: "Infocar credentials are not configured. Set INFOCAR_ID_KEY, INFOCAR_USERNAME, INFOCAR_PASSWORD in apps/infocar-test/.env and restart the proxy.",
-  });
-}
-
 app.get("/api/healthz", gateCheck, (_req, res) => {
-  res.json({ ok: true, credentials_set: credentialsAreSet(), gate_enforced: Boolean(process.env.DADOCAR_GATE_SECRET) });
+  res.json({
+    ok: true,
+    aggregator_configured: isReady(),
+    gate_enforced: Boolean(process.env.DADOCAR_GATE_SECRET),
+  });
 });
 
-app.get("/api/vehicle/plate/:plate", gateCheck, ensureCreds, async (req, res) => {
+app.get("/api/providers", gateCheck, ensureAggregator, async (req, res) => {
+  const out = await callAggregator("/api/providers");
+  res.setHeader("x-upstream-latency-ms", String(out.latencyMs));
+  res.status(out.status).type(out.contentType).send(out.body);
+});
+
+app.get("/api/vehicle/plate/:plate", gateCheck, ensureAggregator, async (req, res) => {
   const raw = String(req.params.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!PLATE_RE.test(raw)) {
     return res.status(400).json({ error: "invalid_plate", message: "Placa fora dos formatos antigo (ABC1234) ou Mercosul (ABC1D23)." });
   }
-  const out = await infocarGet(`/api/v1.0/CodificacaoFipe/placa/${encodeURIComponent(raw)}`);
+  const sources = typeof req.query?.sources === "string" ? req.query.sources : undefined;
+  const out = await callAggregator(`/api/vehicle/plate/${encodeURIComponent(raw)}`, { searchParams: { sources } });
   console.log(`[${new Date().toISOString()}] /placa  q=${maskTail(raw)}  status=${out.status}  ${out.latencyMs}ms`);
   res.setHeader("x-upstream-latency-ms", String(out.latencyMs));
   res.status(out.status).type(out.contentType).send(out.body);
 });
 
-app.get("/api/vehicle/chassi/:chassi", gateCheck, ensureCreds, async (req, res) => {
+app.get("/api/vehicle/chassi/:chassi", gateCheck, ensureAggregator, async (req, res) => {
   const raw = String(req.params.chassi || "").toUpperCase().replace(/[^A-HJ-NPR-Z0-9]/g, "");
   if (!VIN_RE.test(raw)) {
     return res.status(400).json({ error: "invalid_chassi", message: "Chassi deve ter 17 caracteres alfanuméricos (sem I, O ou Q)." });
   }
-  const out = await infocarGet(`/api/v1.0/CodificacaoFipe/chassi/${encodeURIComponent(raw)}`);
+  const sources = typeof req.query?.sources === "string" ? req.query.sources : undefined;
+  const out = await callAggregator(`/api/vehicle/chassi/${encodeURIComponent(raw)}`, { searchParams: { sources } });
   console.log(`[${new Date().toISOString()}] /chassi  q=${maskTail(raw)}  status=${out.status}  ${out.latencyMs}ms`);
   res.setHeader("x-upstream-latency-ms", String(out.latencyMs));
   res.status(out.status).type(out.contentType).send(out.body);
 });
 
-// Loose backward-compat: the old proxy exposed /healthz (no /api prefix).
+// Loose backward-compat with the old proxy that exposed /healthz (no prefix).
 app.get("/healthz", (_req, res) => {
-  res.json({ ok: true, credentials_set: credentialsAreSet(), gate_enforced: Boolean(process.env.DADOCAR_GATE_SECRET) });
+  res.json({ ok: true, aggregator_configured: isReady(), gate_enforced: Boolean(process.env.DADOCAR_GATE_SECRET) });
 });
 
 app.listen(PORT, () => {
-  console.log(`Dadocar Infocar test proxy listening on http://localhost:${PORT}`);
-  console.log(`  credentials_set:  ${credentialsAreSet()}`);
-  console.log(`  gate enforced:    ${Boolean(process.env.DADOCAR_GATE_SECRET)}`);
+  console.log(`Dadocar test proxy listening on http://localhost:${PORT}`);
+  console.log(`  aggregator configured: ${isReady()}`);
+  console.log(`  gate enforced:         ${Boolean(process.env.DADOCAR_GATE_SECRET)}`);
 });

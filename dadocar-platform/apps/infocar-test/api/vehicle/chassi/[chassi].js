@@ -1,19 +1,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/vehicle/chassi/:chassi
-// Vercel serverless function. Same behavior as server/proxy.js's chassi route.
+// Vercel proxy → Dadocar Function App aggregator → vendor(s).
 // ─────────────────────────────────────────────────────────────────────────────
 "use strict";
 
 const { enforceGate } = require("../../_gate");
-const { credentialsAreSet, infocarGet, maskTail, VIN_RE } = require("../../../lib/infocar");
+const { isReady, callAggregator, maskTail, VIN_RE } = require("../../../lib/aggregator");
 
 module.exports = async (req, res) => {
   if (!enforceGate(req, res)) return;
 
-  if (!credentialsAreSet()) {
+  if (!isReady()) {
     return res.status(503).setHeader("content-type", "application/json").send(JSON.stringify({
-      error: "credentials_missing",
-      message: "Infocar credentials are not configured on the server. Set INFOCAR_ID_KEY, INFOCAR_USERNAME, INFOCAR_PASSWORD in the Vercel project's environment variables.",
+      error: "aggregator_unconfigured",
+      message: "Set AZURE_FUNCTION_URL and AZURE_FUNCTION_KEY on the Vercel project so this proxy can reach the Dadocar Function App.",
     }));
   }
 
@@ -25,7 +25,11 @@ module.exports = async (req, res) => {
     }));
   }
 
-  const out = await infocarGet(`/api/v1.0/CodificacaoFipe/chassi/${encodeURIComponent(raw)}`);
+  const sources = typeof req.query?.sources === "string" ? req.query.sources : undefined;
+
+  const out = await callAggregator(`/api/vehicle/chassi/${encodeURIComponent(raw)}`, {
+    searchParams: { sources },
+  });
   console.log(`[${new Date().toISOString()}] /chassi  q=${maskTail(raw)}  status=${out.status}  ${out.latencyMs}ms`);
   res.setHeader("x-upstream-latency-ms", String(out.latencyMs));
   res.status(out.status).setHeader("content-type", out.contentType).send(out.body);

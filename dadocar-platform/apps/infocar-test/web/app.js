@@ -224,10 +224,22 @@ function showError({ title, message, warn = false }) {
 }
 function hideError() { $("error").hidden = true; }
 
-// ─── Render Infocar response ───────────────────────────────────────────────
+// ─── Render aggregator response ───────────────────────────────────────────
+// The Vercel API now forwards the Function-App aggregator response shape:
+//   { query, generated_at, ran_providers, skipped_providers,
+//     unknown_sources, sources: [ { id, display_name, ok, data, ... } ] }
+// For each ok source whose `data` looks like Infocar's payload (has
+// dados.dadosDoVeiculo / dados.fipes), we render the existing Dados +
+// FIPE sections. The first ok Infocar-shaped source wins for the main
+// render today; the meta band always lists every source's status so
+// adding a vendor surfaces immediately.
 function renderResult(body, meta) {
   const result = $("result");
   result.hidden = false;
+
+  const sources = Array.isArray(body?.sources) ? body.sources : [];
+  const okSources = sources.filter(s => s && s.ok && s.data);
+  const primary   = okSources.find(s => s?.data?.dados?.dadosDoVeiculo) || okSources[0] || null;
 
   // Meta footer at top of card.
   const metaEl = $("resultMeta");
@@ -235,9 +247,13 @@ function renderResult(body, meta) {
   metaEl.appendChild(metaPill("endpoint", meta.endpoint));
   metaEl.appendChild(metaPill("upstream",  meta.upstreamLatencyMs ? `${meta.upstreamLatencyMs} ms` : "—"));
   metaEl.appendChild(metaPill("ts",         meta.startedAt.toISOString()));
+  for (const s of sources) {
+    const badge = `${s.display_name || s.id}: ${s.ok ? "ok" : (s.error || "fail")}${s.latency_ms != null ? ` (${s.latency_ms}ms)` : ""}`;
+    metaEl.appendChild(metaPill("source", badge));
+  }
 
   // Dados do Veículo.
-  const dados = body && body.dados && body.dados.dadosDoVeiculo ? body.dados.dadosDoVeiculo : {};
+  const dados = primary?.data?.dados?.dadosDoVeiculo || {};
   const grid = $("dadosGrid");
   grid.innerHTML = "";
   const entries = Object.entries(dados);
@@ -258,7 +274,7 @@ function renderResult(body, meta) {
   }
 
   // Preços FIPE.
-  const fipes = (body && body.dados && Array.isArray(body.dados.fipes)) ? body.dados.fipes : [];
+  const fipes = Array.isArray(primary?.data?.dados?.fipes) ? primary.data.dados.fipes : [];
   const fipeList = $("fipeList");
   fipeList.innerHTML = "";
   if (fipes.length === 0) {
