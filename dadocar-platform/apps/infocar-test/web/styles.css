@@ -276,20 +276,44 @@ button.loading .btn-label   { opacity: 0.7; }
   cursor: pointer;
   list-style: none;
   display: flex; justify-content: space-between; align-items: center;
-  padding: 8px 0;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  font-weight: 600;
+  gap: 10px;
+  padding: 0;
 }
 .raw-json summary::-webkit-details-marker { display: none; }
-.raw-json summary::before {
-  content: "▸";
-  margin-right: 8px;
-  transition: transform 0.2s ease;
+
+/* The "Ler o JSON" / "Ocultar JSON" affordance — actually styled as a button
+   so it's clear the operator can click. The chevron icon rotates on open. */
+.json-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
-.raw-json[open] summary::before { transform: rotate(90deg); }
+.raw-json summary:hover .json-toggle {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.json-toggle-icon {
+  width: 0; height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transition: transform 200ms ease;
+}
+.raw-json[open] .json-toggle-icon { transform: rotate(90deg); }
+
+/* Show only the label that matches the current open/closed state. */
+.json-toggle-label[data-when-open]    { display: none; }
+.raw-json[open] .json-toggle-label[data-when-closed] { display: none; }
+.raw-json[open] .json-toggle-label[data-when-open]   { display: inline; }
 .raw-json pre {
   background: var(--bg);
   border: 1px solid var(--border);
