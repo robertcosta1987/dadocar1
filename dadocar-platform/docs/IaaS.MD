@@ -53,15 +53,20 @@ When refreshing this section, run `az resource list -g rg-dadocar-dev-brs -o tab
 | Resource type | Name | Purpose |
 |---|---|---|
 | Resource Group | `rg-dadocar-dev-brs` | All dev resources. Location: `brazilsouth`. |
-| API Management (Consumption) | `dadocar-dev-apim-brs` | Public API entry point. Empty (no products/APIs) in MVP. URL: `https://dadocar-dev-apim-brs.azure-api.net`. |
+| API Management (Consumption) | `dadocar-dev-apim-brs` | Public API entry point. Gateway: `https://dadocar-dev-apim-brs.azure-api.net`. **Wired** for closed beta: API `dadocar-vehicle-api` at path `/v1` (operation `GET /vehicle/plate/{placa}`); product `dadocar-beta` (subscription required, published); one customer subscription (`moneycar-tenanta-beta`). Inbound policy injects `x-functions-key` from named-value secret `func-key-enrich` on the backend hop. Gateway logs → `dadocar-dev-log-brs` Log Analytics (table: `ApiManagementGatewayLogs`). **Soft limits only** (180/min, 10k/mo) — hard `rate-limit`/`quota` policies require a tier upgrade above Consumption; see [next-steps/001](decisions/next-steps/001-apim-products-subscriptions.md). Customer one-pager: [apps/webclient/CUSTOMER.md](../apps/webclient/CUSTOMER.md). |
 | Function App (Linux Y1, Node 20) | `dadocar-dev-func-enrich-brs` | The enrichment aggregator. URL: `https://dadocar-dev-func-enrich-brs.azurewebsites.net`. System-assigned MI granted Cosmos Data Contributor, KV Secrets User, Storage Blob Data Contributor, Event Hubs Data Sender. |
-| App Service Plan | `dadocar-dev-asp-func-brs` | Y1 Consumption plan backing the Function App. |
+| Function App (Linux Y1, Node 22) | `dadocar-dev-func-pricing-brs` | KBB / Molicar pricing aggregator. URL: `https://dadocar-dev-func-pricing-brs.azurewebsites.net`. Routes: `GET /api/health` (anonymous), `GET /api/providers`, `GET /api/pricing/plate/{plate}`, `GET /api/pricing/vin/{vin}` (function key). System-assigned MI granted `Key Vault Secrets User`. Code: `services/pricing-function/`. Node 24 is **broken** in brazilsouth Y1 as of 2026-06 (TLS handshake OK but every route 503s, SCM never warms); Node 22 worked first try. Deploy: `cd services/pricing-function && func azure functionapp publish dadocar-dev-func-pricing-brs --javascript --no-build`. |
+| App Service Plan | `dadocar-dev-asp-func-brs` | Y1 Consumption plan backing `dadocar-dev-func-enrich-brs`. The pricing function got its own Consumption plan auto-created with the same prefix (separate orphan plan in the same RG). |
 | Cosmos DB (NoSQL) | `dadocardevcosbrso3uo` | 400 RU/s shared at database `dadocar`. Containers: `vehicles` (PK `/placa`, TTL 30d), `fipe_prices` (`/codigoFipe`, no TTL), `vehicle_index` (`/lookup_key`, TTL 30d), `customers` (`/customer_id`, no TTL), `secrets` (`/secret_name`, no TTL). Local-auth disabled — RBAC only. |
 | Storage (Data Lake Gen2) | `dadocardevstbrso3uo` | StandardLRS, Hot, `isHnsEnabled: true`. Containers: `query-log`, `token-lock`, `function-host`. |
 | Event Hub Namespace (Basic) | `dadocar-dev-evhns-brs` | 1 throughput unit. Single hub: `query-events`, 1 partition, 1-day retention. |
-| Key Vault (Standard, RBAC) | `dadocardevkvbrso3uo` | Secrets: `infocar-id-key`, `infocar-username`, `infocar-password` (today). Purge protection disabled so dev can be torn down and rebuilt. |
+| Key Vault (Standard, RBAC) | `dadocardevkvbrso3uo` | Secrets today: `infocar-id-key`, `infocar-username`, `infocar-password`, `molicar-client-id`, `molicar-client-secret`. Purge protection disabled so dev can be torn down and rebuilt. |
 | Application Insights (workspace-based) | `dadocar-dev-appi-brs` | Wired to the Function App via `APPLICATIONINSIGHTS_CONNECTION_STRING`. |
 | Log Analytics workspace | `dadocar-dev-log-brs` | Pay-as-you-go, 30-day retention. |
+| Static Web App (Free) | `dadocar-dev-stapp-docs-brs` | Architecture & status site rendered from this `IaaS.MD` + `docs/decisions/`. Location: `eastus2` (SWA Free is not offered in `brazilsouth`; content is CDN-served globally). URL: <https://polite-rock-090b4930f.7.azurestaticapps.net>. Deploy: see `docs/site/README.md`. |
+| Static Web App (Free) | `dadocar-dev-stapp-www-brs` | Commercial / visual-architecture site (PT-BR), single-page, self-contained. Source: `docs/dadocar_diagrams_v2.html`; deploy snapshot: `docs/commercial-site/`. Location: `eastus2`. URL: <https://orange-island-0c113d10f.7.azurestaticapps.net>. Deploy: see `docs/commercial-site/README.md`. |
+| SQL Server (Standard) | `dadocar-dev-sql-webclient-dv02-brs` | Backs the customer-CRM simulator at `apps/webclient/`. SQL auth (`dadocaradmin`). Firewall: Azure services + operator IP. Suffix `dv02` was generated at first provision and is pinned in `apps/webclient/.azure-provision.state`. |
+| SQL Database (Serverless GP_S_Gen5_1) | `carros_ativos_db` on `dadocar-dev-sql-webclient-dv02-brs` | One table: `carros_ativos`. Min 0.5 vCore, auto-pause 60 min, LRS backup. Idle cost ≈ R$ 25–40/mo. Provision script: `apps/webclient/scripts/provision-azure.sh`. Migrations: `apps/webclient/db/migrations/`. |
 
 ### 2.2 Vercel resources
 
@@ -77,12 +82,13 @@ When refreshing this section, run `az resource list -g rg-dadocar-dev-brs -o tab
 |---|---|
 | Repo | `robertcosta1987/dadocar1` (was `DADOCAR` — GitHub redirects the old name) |
 | Default branch | `main` |
-| Layout | `dadocar-platform/` mono-repo containing `infrastructure/` (Bicep + scripts), `apps/infocar-test/` (Vercel), `services/enrichment-function/` (Azure Function), `docs/` |
+| Layout | `dadocar-platform/` mono-repo containing `infrastructure/` (Bicep + scripts), `apps/infocar-test/` (Vercel), `apps/webclient/` (Next.js CRM demo, Vercel), `services/enrichment-function/` (Azure Function), `services/pricing-function/` (Azure Function), `docs/` |
 
 ### 2.4 Identities & secrets
 
 - **Deployer Service Principal** (object id `6839daed-…`): `Contributor` + `User Access Administrator` on the subscription. Used by `infrastructure/scripts/deploy-dev.sh` to create resources and assign roles. Also has `Key Vault Secrets Officer` on the dev vault so it can write secrets via CLI without re-running Bicep.
-- **Function App Managed Identity** (object id `707fc169-…`): runtime identity. Reads from KV + Cosmos + Storage + Event Hub via RBAC.
+- **Enrichment Function MI** (object id `707fc169-…`): runtime identity for `dadocar-dev-func-enrich-brs`. Reads from KV + Cosmos + Storage + Event Hub via RBAC.
+- **Pricing Function MI** (object id `6d443573-…`): runtime identity for `dadocar-dev-func-pricing-brs`. KV Secrets User only — no Cosmos / Storage / Event Hub roles yet (provider is stateless today).
 - **APIM Managed Identity**: not yet wired (APIM is empty in MVP).
 - **Vercel app**: holds only the function key + gate secret. Never sees Infocar credentials.
 
@@ -107,8 +113,10 @@ When refreshing this section, run `az resource list -g rg-dadocar-dev-brs -o tab
 | Infocar bearer token | In-process cache, per Function instance | ✅ wired today |
 | Vehicle lookup responses (plate mode) | Cosmos `vehicles` container, PK `/placa`, TTL 30d | ✅ wired today (cache-aside, fail-open) |
 | Vehicle lookup responses (VIN mode) | Cosmos `vehicle_index` → `vehicles` (resolve VIN→plate first) | ⏳ not yet wired |
-| Query events | Event Hub `query-events` | ⏳ not yet wired |
+| Query events | Event Hub `query-events` | ✅ wired today (fail-open emission per request; see [decisions/0001](decisions/0001-closed-beta-launch.md) + [next-steps/008](decisions/next-steps/008-data-lake-pipeline.md) for Capture wiring) |
 | Audit logs | App Insights via `context.log()` calls | ✅ wired today |
+| Molicar bearer token | In-process cache per pricing Function instance, refreshed 5 min before vendor `expires_in` | ✅ wired today |
+| KBB / Molicar pricing responses | In-flight only — not yet cached. Future: share `vehicles` container or add a `pricing` container | ⏳ not yet wired |
 
 ### 2.7 Observability & log access
 
@@ -196,7 +204,7 @@ Annotate each node with its actual dev name from section 2.1. Mark currently-unu
 - Vendor credentials — written by operator via `az keyvault secret set`, read by Function App MI
 - Infocar bearer token — written/read by Function App in-process cache (annotate "future: Cosmos `secrets` container for shared cache")
 - Vehicle response data — currently in-flight only (annotate "future: Cosmos `vehicles` container, TTL 30 days")
-- Query events — currently logged only via App Insights (annotate "future: Event Hub `query-events`")
+- Query events — emitted to Event Hub `query-events` per request (annotate "future: EH Capture → Storage `query-log/`, see next-steps/008")
 
 Distinguish read vs write edges with different arrow styles. Mark dashed edges for future-but-unwired flows.
 
