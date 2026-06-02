@@ -1,0 +1,17 @@
+graph LR
+  classDef planned stroke-dasharray: 3 3,stroke:#0a6,color:#0a6
+
+  FN[Function App<br/>dadocar-dev-func-enrich-brs]
+  AI[App Insights component<br/>dadocar-dev-appi-brs<br/>workspace-based, no backing store]
+  LA[Log Analytics workspace<br/>dadocar-dev-log-brs<br/>AppRequests · AppTraces · AppDependencies<br/>AppExceptions · AppMetrics · AppEvents]
+  OP[Operator / Portal]
+
+  FN ==>|APPLICATIONINSIGHTS_CONNECTION_STRING<br/>instrumentation key ...28ac...| AI
+  AI ==>|workspace-based ingestion| LA
+  FN -. AppDependencies (planned<br/>@azure/monitor-opentelemetry) .-> AI
+  FN -. AppExceptions (planned) .-> AI
+
+  OP ==>|az monitor log-analytics query<br/>+ Portal Logs blade| LA
+  OP ==>|Portal Live Metrics<br/>+ Transactions Search| AI
+
+  CALLOUT["⚠ Gotcha<br/>az monitor app-insights query targets the<br/>classic schema and returns empty for<br/>workspace-based components. Always use<br/>az monitor log-analytics query against<br/>the workspace customer ID."]

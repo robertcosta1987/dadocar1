@@ -1,0 +1,12 @@
+flowchart TD
+  S([Need: support new vendor X])
+  S --> S1["1. Decide secret names<br/>(x-api-key, x-tenant-id, ...)<br/>seed via az keyvault secret set"]
+  S1 --> S2["2. Create<br/>src/providers/&lt;id&gt;.js<br/>implementing contract from _types.js"]
+  S2 --> S3["3. Add module to PROVIDERS<br/>in src/providers/index.js"]
+  S3 --> S4["4. Update docs/IaaS.MD<br/>section 2.1 (KV secrets)<br/>+ section 4 vendor catalog"]
+  S4 --> S5["5. func azure functionapp publish<br/>dadocar-dev-func-enrich-brs --javascript"]
+  S5 --> S6{"6. GET /api/providers<br/>ready: true?"}
+  S6 -- no --> R[Re-check KV secret names<br/>vs provider isReady() lookups]
+  R --> S1
+  S6 -- yes --> S7["7. GET /api/vehicle/plate/{plate}?sources=&lt;id&gt;<br/>verify response under sources[]"]
+  S7 --> E([New source appears in sources[]<br/>on every aggregator call])

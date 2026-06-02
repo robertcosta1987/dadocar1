@@ -1,0 +1,27 @@
+sequenceDiagram
+  autonumber
+  participant B as Browser<br/>(dadocar1.vercel.app)
+  participant V as Vercel proxy<br/>(api/vehicle/plate/[plate].js)
+  participant F as Function App<br/>(dadocar-dev-func-enrich-brs)
+  participant K as Key Vault<br/>(dadocardevkvbrso3uo)
+  participant I as Infocar<br/>(api.datacast3.com)
+
+  Note over B,F: Closed-beta authentication chain
+  B->>V: POST /api/vehicle/plate/{plate}<br/>Authorization: Bearer DADOCAR_GATE_SECRET
+  V->>F: GET /api/vehicle/plate/{plate}<br/>x-functions-key: AZURE_FUNCTION_KEY
+  F->>K: GET secret infocar-id-key<br/>(MI via DefaultAzureCredential)
+  K-->>F: secret value
+  F->>K: GET secret infocar-username
+  K-->>F: secret value
+  F->>K: GET secret infocar-password
+  K-->>F: secret value
+  Note over F,K: KV reads cached ~5 min<br/>(subsequent calls skip K)
+
+  F->>I: POST /api/Token/GerarToken<br/>JSON: credentials
+  I-->>F: bearer token (TTL ~8h)
+  Note over F,I: Token cached in-process ~7h45m<br/>(subsequent calls skip token round-trip)
+
+  F->>I: GET /api/v1.0/CodificacaoFipe/placa/{plate}<br/>Authorization: Bearer
+  I-->>F: vehicle + FIPE payload
+  F-->>V: {query, generated_at, ran_providers, sources:[{id,ok,data,latency_ms}]}
+  V-->>B: JSON body (verbatim)

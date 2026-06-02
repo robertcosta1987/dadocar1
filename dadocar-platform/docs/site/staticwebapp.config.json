@@ -1,0 +1,17 @@
+{
+  "routes": [
+    { "route": "/", "rewrite": "/index.html" }
+  ],
+  "mimeTypes": {
+    ".mmd": "text/plain; charset=utf-8",
+    ".md":  "text/markdown; charset=utf-8"
+  },
+  "globalHeaders": {
+    "Cache-Control": "no-cache, must-revalidate",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer"
+  },
+  "responseOverrides": {
+    "404": { "rewrite": "/index.html", "statusCode": 200 }
+  }
+}

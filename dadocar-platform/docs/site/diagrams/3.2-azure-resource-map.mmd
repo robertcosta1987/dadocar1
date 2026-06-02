@@ -1,0 +1,51 @@
+graph LR
+  classDef unused stroke-dasharray: 5 5,stroke:#888,color:#888
+  classDef wired stroke:#1f7a1f
+  classDef planned stroke-dasharray: 3 3,stroke:#0a6,color:#0a6
+
+  subgraph EDGE[Edge]
+    APIM["API Management<br/>(Consumption)<br/>dadocar-dev-apim-brs"]:::unused
+  end
+
+  subgraph COMPUTE[Compute]
+    FN["Function App<br/>(Linux Y1 Node 20)<br/>dadocar-dev-func-enrich-brs"]:::wired
+    ASP["App Service Plan<br/>dadocar-dev-asp-func-brs"]:::wired
+  end
+
+  subgraph DATA[Data]
+    COSMOS["Cosmos DB (NoSQL)<br/>dadocardevcosbrso3uo<br/>vehicles · fipe_prices · vehicle_index · customers · secrets"]:::wired
+    ST["Storage (Data Lake Gen2)<br/>dadocardevstbrso3uo<br/>query-log · token-lock · function-host"]:::wired
+    EH["Event Hub Namespace (Basic)<br/>dadocar-dev-evhns-brs<br/>hub: query-events (1 partition, 1d retention)"]:::wired
+  end
+
+  subgraph ID[Identity & Secrets]
+    KV["Key Vault (RBAC)<br/>dadocardevkvbrso3uo<br/>infocar-id-key · infocar-username · infocar-password"]:::wired
+  end
+
+  subgraph OBS[Observability]
+    AI["Application Insights<br/>(workspace-based)<br/>dadocar-dev-appi-brs"]:::wired
+    LA["Log Analytics workspace<br/>dadocar-dev-log-brs"]:::wired
+  end
+
+  subgraph DOCS[Docs / public sites]
+    SWA["Static Web App (Free)<br/>dadocar-dev-stapp-docs-brs<br/>(internal: architecture & status)<br/>eastus2"]:::wired
+    SWAWWW["Static Web App (Free)<br/>dadocar-dev-stapp-www-brs<br/>(commercial: visual-arch page)<br/>eastus2"]:::wired
+  end
+
+  subgraph TENANT[TenantA simulator (apps/webclient)]
+    SQLSRV["SQL Server<br/>dadocar-dev-sql-webclient-dv02-brs<br/>brazilsouth · SQL auth"]:::wired
+    SQLDB[("SQL DB (Serverless GP_S_Gen5_1)<br/>carros_ativos_db<br/>min 0.5 vCore · auto-pause 60min")]:::wired
+    WC["Next.js webclient<br/>(local: pnpm dev → :3000)<br/>customer-CRM simulator"]:::wired
+  end
+  SQLSRV --- SQLDB
+  WC -- "SQL auth (admin)" --> SQLDB
+  WC -- "x-functions-key<br/>(via DADOCAR_API_KEY)" --> FN
+
+  ASP --- FN
+  FN -- "RBAC: Cosmos DB Built-in<br/>Data Contributor" --> COSMOS
+  FN -- "RBAC: Key Vault<br/>Secrets User" --> KV
+  FN -- "RBAC: Storage Blob<br/>Data Contributor + runtime" --> ST
+  FN -- "RBAC: Azure Event Hubs<br/>Data Sender" --> EH
+  FN -- "APPLICATIONINSIGHTS_<br/>CONNECTION_STRING" --> AI
+  AI -- "workspace-based" --> LA
+  APIM -. "route + subscription key<br/>(planned)" .-> FN

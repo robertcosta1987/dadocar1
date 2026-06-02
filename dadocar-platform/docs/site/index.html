@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Dadocar — Status Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<!-- Newsreader: serif w/ optical sizing for body + italic display.
+     Hanken Grotesk: small-caps labels + sidebar nav.
+     DM Mono: code, tables, plate identifiers. -->
+<link
+  href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,700;1,6..72,400;1,6..72,500&family=Hanken+Grotesk:wght@500;600;700&family=DM+Mono:wght@400;500&display=swap"
+  rel="stylesheet"
+/>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<aside id="nav">
+  <header>
+    <div class="logo">Dadocar</div>
+    <div class="env">dev · brazilsouth · live</div>
+  </header>
+  <nav>
+    <a href="#overview" data-section>Overview</a>
+    <a href="#current" data-section>Current state</a>
+    <a href="#diagrams" data-section>Diagrams</a>
+    <a href="#decision-0001" data-section>Closed-beta decision</a>
+    <a href="#next-steps" data-section>Next steps</a>
+    <a href="#patterns" data-section>Extension patterns</a>
+  </nav>
+  <footer>
+    <div id="last-updated">loading…</div>
+    <div class="src">source: <a href="https://github.com/robertcosta1987/dadocar1" target="_blank" rel="noopener">repo</a></div>
+  </footer>
+</aside>
+
+<main id="content">
+  <header id="masthead">
+    <h1>Plataforma Dadocar</h1>
+    <p class="lede">API de dados veiculares. Beta fechado em dev. Fonte da verdade: <code>docs/IaaS.MD</code> e <code>docs/decisions/</code>. Esta página recompila a cada deploy.</p>
+  </header>
+
+  <section id="overview"><div data-md="content/IaaS.md" data-section-range="1.solution-overview"></div></section>
+  <section id="current"><div data-md="content/IaaS.md" data-section-range="2.current-state"></div></section>
+
+  <section id="diagrams">
+    <h2>3. Diagrams</h2>
+    <p>Rendered from <code>docs/site/diagrams/*.mmd</code>. Authored once from the briefs in <code>IaaS.MD §3</code>; if a brief changes, regenerate the corresponding <code>.mmd</code>.</p>
+
+    <article class="diagram">
+      <h3>3.1 End-to-end request flow</h3>
+      <pre class="mermaid" data-mmd="diagrams/3.1-request-flow.mmd"></pre>
+    </article>
+    <article class="diagram">
+      <h3>3.2 Azure resource map</h3>
+      <pre class="mermaid" data-mmd="diagrams/3.2-azure-resource-map.mmd"></pre>
+    </article>
+    <article class="diagram">
+      <h3>3.3 Data flow</h3>
+      <pre class="mermaid" data-mmd="diagrams/3.3-data-flow.mmd"></pre>
+    </article>
+    <article class="diagram">
+      <h3>3.4 Adding a new provider</h3>
+      <pre class="mermaid" data-mmd="diagrams/3.4-add-provider.mmd"></pre>
+    </article>
+    <article class="diagram">
+      <h3>3.5 Adding a new entry-point function</h3>
+      <pre class="mermaid" data-mmd="diagrams/3.5-add-function.mmd"></pre>
+    </article>
+    <article class="diagram">
+      <h3>3.6 Deployment / promotion topology</h3>
+      <pre class="mermaid" data-mmd="diagrams/3.6-deployment-topology.mmd"></pre>
+    </article>
+    <article class="diagram">
+      <h3>3.7 Identity &amp; secret-access chain</h3>
+      <pre class="mermaid" data-mmd="diagrams/3.7-identity-chain.mmd"></pre>
+    </article>
+    <article class="diagram">
+      <h3>3.8 Cache-aside flow for plate lookups</h3>
+      <pre class="mermaid" data-mmd="diagrams/3.8-cache-aside-flow.mmd"></pre>
+    </article>
+    <article class="diagram">
+      <h3>3.9 Telemetry topology</h3>
+      <pre class="mermaid" data-mmd="diagrams/3.9-telemetry-topology.mmd"></pre>
+    </article>
+  </section>
+
+  <section id="decision-0001"><div data-md="content/0001-closed-beta-launch.md"></div></section>
+  <section id="decision-0002"><div data-md="content/0002-web-deploy-aesthetics-standard.md"></div></section>
+  <section id="decision-0003"><div data-md="content/0003-doc-update-workflow.md"></div></section>
+
+  <section id="next-steps">
+    <h2>Next steps — the production backlog</h2>
+    <div data-md="content/next-steps-README.md"></div>
+    <details><summary>001 · APIM products + subscriptions + rate-limit policies</summary><div data-md="content/next-steps-001.md"></div></details>
+    <details><summary>002 · Customer model in Cosmos + per-customer attribution</summary><div data-md="content/next-steps-002.md"></div></details>
+    <details><summary>003 · Stripe billing + provisioning-orchestrator + webhook handler</summary><div data-md="content/next-steps-003.md"></div></details>
+    <details><summary>004 · CI/CD pipelines</summary><div data-md="content/next-steps-004.md"></div></details>
+    <details><summary>005 · Azure Monitor alerts + SLO/SLI definitions</summary><div data-md="content/next-steps-005.md"></div></details>
+    <details><summary>006 · Network hardening (private endpoints)</summary><div data-md="content/next-steps-006.md"></div></details>
+    <details><summary>007 · Cosmos autoscale + RU sizing</summary><div data-md="content/next-steps-007.md"></div></details>
+    <details><summary>008 · Data lake ingestion (EH Capture)</summary><div data-md="content/next-steps-008.md"></div></details>
+    <details><summary>009 · LGPD de-identification job</summary><div data-md="content/next-steps-009.md"></div></details>
+    <details><summary>010 · Cross-instance Infocar token cache</summary><div data-md="content/next-steps-010.md"></div></details>
+    <details><summary>011 · FIPE monthly refresh job</summary><div data-md="content/next-steps-011.md"></div></details>
+    <details><summary>012 · VIN cache via vehicle_index</summary><div data-md="content/next-steps-012.md"></div></details>
+    <details><summary>013 · OpenTelemetry distro</summary><div data-md="content/next-steps-013.md"></div></details>
+    <details><summary>014 · Production environment</summary><div data-md="content/next-steps-014.md"></div></details>
+    <details><summary>015 · Multi-region / DR</summary><div data-md="content/next-steps-015.md"></div></details>
+  </section>
+
+  <section id="patterns"><div data-md="content/IaaS.md" data-section-range="4.extension-patterns"></div></section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.2.1/dist/mermaid.esm.min.mjs';
+  // Cream-paper palette to match the page. Mermaid's default white +
+  // saturated blue clashes hard with the rest of the design.
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'loose',
+    theme: 'base',
+    themeVariables: {
+      background:         '#fbf7ea',
+      primaryColor:       '#fbf7ea',
+      primaryTextColor:   '#1c2a3a',
+      primaryBorderColor: '#1c2a3a',
+      lineColor:          '#5a6a7f',
+      secondaryColor:     '#f0e9d5',
+      tertiaryColor:      '#f0e9d5',
+      noteBkgColor:       '#f4dfb3',
+      noteBorderColor:    '#9a4b00',
+      noteTextColor:      '#1c2a3a',
+      fontFamily:         'Newsreader, "Source Serif Pro", Georgia, serif',
+      fontSize:           '14px',
+      // sequence-diagram specifics
+      actorBkg:           '#fbf7ea',
+      actorBorder:        '#1c2a3a',
+      actorTextColor:     '#1c2a3a',
+      signalColor:        '#1c2a3a',
+      signalTextColor:    '#1c2a3a',
+      labelBoxBkgColor:   '#c8362b',
+      labelBoxBorderColor:'#9b291f',
+      labelTextColor:     '#fbf7ea',
+      loopTextColor:      '#1c2a3a',
+      // dashed/planned edges
+      defaultLinkColor:   '#5a6a7f',
+    },
+    flowchart: { htmlLabels: true, curve: 'basis' },
+    sequence: { actorMargin: 56, messageMargin: 36, mirrorActors: false },
+  });
+
+  // marked: GFM tables + linkify
+  marked.setOptions({ gfm: true, breaks: false });
+
+  async function fetchText(path) {
+    const r = await fetch(path, { cache: 'no-cache' });
+    if (!r.ok) throw new Error(`${path}: ${r.status}`);
+    return await r.text();
+  }
+
+  // Extracts a heading-bounded section by anchor id (e.g. "1.solution-overview").
+  // Section spans from the matching heading up to (but not including) the next
+  // heading at the same level. Lets us slice IaaS.MD into the masthead sections.
+  function sliceByHeadingAnchor(md, anchor) {
+    const lines = md.split('\n');
+    let start = -1, headingLevel = 0;
+    const slug = (txt) => txt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^(#{1,6})\s+(.+?)\s*$/);
+      if (!m) continue;
+      const s = slug(m[2]);
+      if (start === -1) {
+        // anchor like "1.solution-overview" — match against slug starting with same prefix
+        if (s.startsWith(anchor.replace('.', '-'))) {
+          start = i;
+          headingLevel = m[1].length;
+        }
+      } else if (m[1].length <= headingLevel) {
+        return lines.slice(start, i).join('\n');
+      }
+    }
+    return start === -1 ? '' : lines.slice(start).join('\n');
+  }
+
+  async function renderMarkdownNodes() {
+    const nodes = document.querySelectorAll('[data-md]');
+    await Promise.all(Array.from(nodes).map(async (n) => {
+      try {
+        const md = await fetchText(n.dataset.md);
+        let body = md;
+        if (n.dataset.sectionRange) body = sliceByHeadingAnchor(md, n.dataset.sectionRange);
+        // Rewrite relative links inside fetched markdown so they keep working from the site root.
+        body = body.replace(/\]\((?!https?:|#|mailto:)([^)]+)\)/g, (m, p) => `](#${p.replace(/[^a-z0-9]+/gi, '-').toLowerCase()})`);
+        n.innerHTML = marked.parse(body);
+      } catch (e) {
+        n.innerHTML = `<div class="err">Failed to load ${n.dataset.md}: ${e.message}</div>`;
+      }
+    }));
+  }
+
+  async function renderMermaidNodes() {
+    const nodes = document.querySelectorAll('pre.mermaid[data-mmd]');
+    await Promise.all(Array.from(nodes).map(async (n) => {
+      try {
+        n.textContent = await fetchText(n.dataset.mmd);
+      } catch (e) {
+        n.innerHTML = `<span class="err">Failed to load ${n.dataset.mmd}: ${e.message}</span>`;
+      }
+    }));
+    await mermaid.run({ nodes: document.querySelectorAll('pre.mermaid') });
+  }
+
+  async function setLastUpdated() {
+    try {
+      const r = await fetch('./content/manifest.json', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const m = await r.json();
+      document.getElementById('last-updated').textContent = `Updated ${m.generated_at} · ${m.commit || ''}`;
+    } catch {}
+  }
+
+  (async function init() {
+    await Promise.all([renderMarkdownNodes(), renderMermaidNodes(), setLastUpdated()]);
+    // After markdown is in the DOM, scroll to hash if any
+    if (location.hash) {
+      const el = document.querySelector(location.hash);
+      if (el) el.scrollIntoView();
+    }
+  })();
+</script>
+</body>
+</html>

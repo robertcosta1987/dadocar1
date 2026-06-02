@@ -1,0 +1,23 @@
+graph LR
+  classDef planned stroke-dasharray: 3 3,stroke:#0a6,color:#0a6
+
+  DEV[Operator laptop]
+  REPO[(GitHub<br/>robertcosta1987/dadocar1<br/>branch: main)]
+  GHA[GitHub Actions]:::planned
+  VERCEL[Vercel<br/>project dadocar1<br/>root: dadocar-platform/apps/infocar-test/]
+  SITE[https://dadocar1.vercel.app]
+  FN[Azure Function App<br/>dadocar-dev-func-enrich-brs]
+  RG[rg-dadocar-dev-brs<br/>all dev Azure resources]
+  PROD[rg-dadocar-prod-brs]:::planned
+
+  DEV ==>|git push main| REPO
+  REPO ==>|webhook| VERCEL
+  VERCEL ==>|auto build + deploy| SITE
+  DEV ==>|func azure functionapp publish<br/>(manual today)| FN
+  DEV ==>|infrastructure/scripts/deploy-dev.sh<br/>Bicep sub-scoped deploy| RG
+
+  REPO -. on services/enrichment-function/** .-> GHA
+  GHA -. publish .-> FN
+  REPO -. on infrastructure/bicep/** .-> GHA
+  GHA -. what-if + deploy .-> RG
+  GHA -. promotion gate .-> PROD

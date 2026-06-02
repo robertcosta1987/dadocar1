@@ -1,0 +1,11 @@
+flowchart TD
+  S([Need: new endpoint<br/>e.g. /api/vehicle/{id}/history])
+  S --> S1["1. Decide route shape<br/>+ HTTP method"]
+  S1 --> S2["2. Add src/functions/&lt;routeName&gt;.js<br/>register via app.http(...)"]
+  S2 --> Q{Does the endpoint<br/>aggregate across vendors?}
+  Q -- yes --> S3a["3a. Reuse providers registry<br/>add contract method (e.g. lookupHistory)<br/>+ update _types.js"]
+  S3a --> S4a["4a. Backfill method in each provider;<br/>throw 'not_supported' from non-supporters"]
+  S4a --> S5
+  Q -- no, single-source admin --> S3b["3b. Call the relevant module directly<br/>(skip provider registry)"]
+  S3b --> S5["5. func azure functionapp publish<br/>+ smoke-test new route"]
+  S5 --> E([New endpoint live, gated by function key,<br/>surfaced under APIM later])

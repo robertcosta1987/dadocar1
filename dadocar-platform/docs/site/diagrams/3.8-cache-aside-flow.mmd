@@ -1,0 +1,38 @@
+sequenceDiagram
+  participant V as Vercel proxy
+  participant F as Function App<br/>(vehicleLookup.js)
+  participant C as Cosmos<br/>vehicles (PK /placa)
+  participant P as Provider (infocar)
+  participant I as Infocar API
+
+  alt MISS — cold/expired cache
+    V->>F: GET /api/vehicle/plate/{plate}
+    F->>C: cache.getCachedByPlate(plate)
+    C-->>F: 404 (or non-404 error → fail-open)
+    F->>P: lookupByPlate(plate)
+    P->>I: POST /Token/GerarToken (cold)
+    I-->>P: bearer
+    P->>I: GET /CodificacaoFipe/placa/{plate}
+    I-->>P: payload
+    P-->>F: ProviderResponse
+    F-->>V: {cached:false, sources:[...]}
+    F-)C: cache.setCachedByPlate (fire-and-forget)
+    Note over F,C: wall ~3–5s cold,<br/>~700ms warm
+  else HIT — recent doc within TTL 30d
+    V->>F: GET /api/vehicle/plate/{plate}
+    F->>C: cache.getCachedByPlate(plate)
+    C-->>F: doc (point read)
+    F-->>V: {cached:true, cached_at, sources:[...]}
+    Note over F,C: wall ~500ms<br/>no Infocar call
+  else ?fresh=1 — bypass read, still write
+    V->>F: GET /api/vehicle/plate/{plate}?fresh=1
+    Note over F,C: cache read skipped
+    F->>P: lookupByPlate(plate)
+    P->>I: token + lookup
+    I-->>P: payload
+    P-->>F: ProviderResponse
+    F-->>V: {cached:false, sources:[...]}
+    F-)C: cache.setCachedByPlate (fire-and-forget)
+  end
+
+  Note over F,C: Cache writes never fail the response.<br/>Read errors fail-open: log + treat as miss.

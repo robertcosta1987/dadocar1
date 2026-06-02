@@ -1,0 +1,26 @@
+flowchart LR
+  classDef inflight fill:#fff,stroke:#888,stroke-dasharray: 5 5
+  classDef persisted fill:#e8f5e9,stroke:#1f7a1f
+  classDef planned fill:#fff,stroke:#0a6,stroke-dasharray: 3 3,color:#0a6
+
+  OP[Operator<br/>az keyvault secret set]
+  CUST[Customer query<br/>plate / VIN]:::inflight
+  FN[Function App<br/>dadocar-dev-func-enrich-brs]
+  KV[(Key Vault<br/>infocar-*)]:::persisted
+  IC[Infocar bearer token<br/>in-process cache, ~7h45m]:::inflight
+  COS[(Cosmos vehicles<br/>PK /placa, TTL 30d)]:::persisted
+  COSI[(Cosmos vehicle_index<br/>PK /lookup_key, TTL 30d)]:::planned
+  EH[(Event Hub query-events<br/>1d retention)]:::persisted
+  AI[(App Insights / Log Analytics<br/>AppTraces, AppRequests)]:::persisted
+  SLAKE[(Storage query-log/<br/>Avro via EH Capture)]:::planned
+
+  OP ==>|write| KV
+  CUST -. inflight .-> FN
+  FN ==>|MI: Secrets User<br/>read| KV
+  FN <-. cache .-> IC
+  FN ==>|cache-aside upsert| COS
+  FN ==>|point read| COS
+  FN -. future cross-ref .-> COSI
+  FN ==>|fail-open emit<br/>per request| EH
+  FN ==>|context.log| AI
+  EH -. EH Capture<br/>next-steps/008 .-> SLAKE

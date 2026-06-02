@@ -1,0 +1,484 @@
+/* =========================================================================
+ * Dadocar — Status Report
+ * Aesthetic: 1960s engineering-journal print, with a cinnabar registration
+ * mark. Cream-paper background, ink-navy type, single hot accent for
+ * emphasis. Newsreader serif for prose, Hanken Grotesk small-caps for
+ * labels, DM Mono for code and tables. Distinct from the webclient (which
+ * is dark workshop-modernist), distinct from the previous docs page
+ * (which was generic clean-light).
+ * ========================================================================= */
+
+:root {
+  /* Paper + ink */
+  --bg:         #f0e9d5;   /* aged cream paper */
+  --bg-inset:   #fbf7ea;   /* card / mermaid plate */
+  --bg-elev:    #faf3df;
+  --border:     #cdc4a8;   /* pencil gray-tan */
+  --hairline:   #ddd4ba;
+  --ink:        #1c2a3a;   /* deep navy with warmth */
+  --ink-strong: #0f1825;
+  --ink-muted:  #5a6a7f;
+  --ink-faint:  #9a948a;
+
+  /* The accents — used SPARINGLY. One dominant voice (cinnabar), one
+     calmer voice (viridian) for "wired/ok" states, one for "broken". */
+  --accent:        #c8362b;   /* cinnabar — section marks, links, figure tags */
+  --accent-deep:   #9b291f;
+  --accent-soft:   rgba(200, 54, 43, 0.10);
+  --viridian:      #406e5c;
+  --rust:          #9a4b00;
+
+  --max:  68rem;
+
+  /* Type stack */
+  --serif:  "Newsreader", "Source Serif Pro", Georgia, serif;
+  --sans:   "Hanken Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --mono:   "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+/* ───── Base ────────────────────────────────────────────────────────────── */
+html, body { margin: 0; padding: 0; }
+body {
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.62;
+  font-feature-settings: "kern", "liga", "onum";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Engineering-paper dot grid + a single cinnabar registration mark
+     in the top-right that hints at the "Fig." treatment used inside. */
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(28, 42, 58, 0.08) 1px, transparent 1.4px),
+    radial-gradient(420px 320px at 100% -10%, rgba(200, 54, 43, 0.04), transparent 70%);
+  background-size: 24px 24px, 100% 100%;
+  background-attachment: fixed;
+}
+::selection { background: var(--accent); color: var(--bg); }
+img, svg { max-width: 100%; height: auto; }
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  background-image: linear-gradient(to right, var(--accent) 0, var(--accent) 100%);
+  background-position: 0 1.05em;
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  transition: background-size 160ms ease;
+}
+a:hover { background-size: 100% 2px; }
+
+code {
+  font-family: var(--mono);
+  background: var(--bg-inset);
+  border: 1px solid var(--hairline);
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-size: 0.85em;
+}
+pre {
+  background: var(--bg-inset);
+  border: 1px solid var(--hairline);
+  padding: 12px 14px;
+  border-radius: 2px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+pre code { background: none; border: 0; padding: 0; }
+
+/* ───── Layout shell ────────────────────────────────────────────────────── */
+#nav {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: 240px;
+  padding: 28px 22px 22px;
+  background:
+    /* hard vertical rule on the right edge — a margin scribe */
+    linear-gradient(to right, transparent calc(100% - 1px), var(--border) calc(100% - 1px));
+  display: flex; flex-direction: column; gap: 24px;
+  overflow-y: auto;
+}
+#nav header { display: flex; flex-direction: column; gap: 4px; }
+#nav header .logo {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-strong);
+  display: flex; align-items: center; gap: 8px;
+}
+#nav header .logo::before {
+  content: "";
+  display: inline-block;
+  width: 10px; height: 10px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--accent);
+}
+#nav header .env {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  letter-spacing: 0.02em;
+}
+#nav nav { display: flex; flex-direction: column; gap: 2px; }
+#nav nav a {
+  /* Override the body-link underline treatment for nav items */
+  background: none;
+  color: var(--ink);
+  padding: 6px 0;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  position: relative;
+  padding-left: 18px;
+  transition: color 140ms ease, padding-left 140ms ease;
+}
+#nav nav a::before {
+  content: "§";
+  position: absolute;
+  left: 0;
+  color: var(--ink-faint);
+  font-family: var(--serif);
+  font-size: 14px;
+  transition: color 140ms ease;
+}
+#nav nav a:hover {
+  color: var(--accent);
+  padding-left: 22px;
+}
+#nav nav a:hover::before { color: var(--accent); }
+
+#nav footer {
+  margin-top: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.6;
+  border-top: 1px solid var(--hairline);
+  padding-top: 14px;
+}
+#nav footer .src a { color: var(--accent); }
+
+#content {
+  margin-left: 240px;
+  padding: 56px 60px 96px;
+  max-width: calc(var(--max) + 240px);
+}
+
+/* ───── Masthead ────────────────────────────────────────────────────────── */
+#masthead {
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 24px;
+  margin-bottom: 32px;
+  position: relative;
+}
+#masthead::before {
+  content: "Relatório №";
+  position: absolute;
+  top: -4px; left: 0;
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+#masthead h1 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-style: italic;
+  font-size: 54px;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  margin: 24px 0 8px;
+  color: var(--ink-strong);
+}
+#masthead .lede {
+  font-family: var(--serif);
+  font-size: 17px;
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 56ch;
+}
+#masthead code {
+  font-size: 14px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ───── Sections ────────────────────────────────────────────────────────── */
+section {
+  padding: 36px 0;
+  border-bottom: 1px solid var(--hairline);
+  position: relative;
+}
+section:last-child { border-bottom: 0; }
+
+/* Section headings (from the fetched markdown). Numerals stay attached to
+   the title via a vertical pencil rule, like a printed contents block. */
+section h2 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 30px;
+  line-height: 1.18;
+  letter-spacing: -0.012em;
+  margin: 28px 0 14px;
+  color: var(--ink-strong);
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+}
+section h3 {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  margin: 22px 0 8px;
+  color: var(--ink-muted);
+}
+section h4 {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin: 18px 0 6px;
+  color: var(--ink);
+}
+
+p { margin: 10px 0 14px; }
+p:first-child { margin-top: 0; }
+
+ul, ol { margin: 10px 0 16px; padding-left: 22px; }
+ul li { margin: 4px 0; }
+ul li::marker { color: var(--accent); }
+ol li::marker { color: var(--ink-muted); font-family: var(--mono); }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  margin: 24px 0;
+}
+
+blockquote {
+  margin: 14px 0;
+  padding: 4px 0 4px 16px;
+  border-left: 2px solid var(--accent);
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+/* ───── Tables ──────────────────────────────────────────────────────────── */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 14px 0 22px;
+  font-size: 14px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+}
+thead {
+  background: linear-gradient(180deg, rgba(28, 42, 58, 0.04), transparent);
+}
+th {
+  text-align: left;
+  padding: 8px 12px;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--border);
+}
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+  font-size: 14px;
+}
+tr:last-child td { border-bottom: 0; }
+td code { font-size: 0.82em; }
+
+/* ───── Diagram "Fig." plates ───────────────────────────────────────────── */
+.diagram {
+  margin: 32px 0;
+  position: relative;
+}
+.diagram h3 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 18px;
+  text-transform: none;
+  letter-spacing: -0.005em;
+  color: var(--ink-strong);
+  margin: 0 0 10px;
+}
+.diagram h3::before {
+  content: "Fig.";
+  display: inline-block;
+  margin-right: 8px;
+  font-family: var(--sans);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+  vertical-align: middle;
+  transform: translateY(-2px);
+}
+pre.mermaid {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 22px 18px;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.3;
+  position: relative;
+}
+/* Tiny registration mark — a cross-hair in the corner — to reinforce the
+   "this is a figure plate" feel. Pure CSS, no SVG. */
+pre.mermaid::after {
+  content: "";
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 10px; height: 10px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) center / 100% 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) center / 1px 100% no-repeat;
+  opacity: 0.65;
+}
+pre.mermaid svg { max-width: 100%; height: auto; }
+
+/* ───── Disclosure (next-steps items) ───────────────────────────────────── */
+details {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 8px 14px;
+  margin: 6px 0;
+  transition: border-color 140ms ease;
+}
+details:hover { border-color: var(--ink-muted); }
+details > summary {
+  cursor: pointer;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  padding: 4px 0;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before {
+  content: "+";
+  display: inline-block;
+  width: 14px;
+  font-family: var(--mono);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14px;
+}
+details[open] > summary::before { content: "−"; }
+details[open] {
+  border-color: var(--accent);
+  background: var(--bg-elev);
+}
+details[open] > summary {
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+/* ───── Error fallback ──────────────────────────────────────────────────── */
+.err {
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  padding: 10px 12px;
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+/* ───── Motion ──────────────────────────────────────────────────────────── */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes nudge {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Staggered page-load reveal on the nav. Sections fade in as the
+   markdown promise resolves; mermaid plates do their own thing. */
+#nav header, #nav nav a, #nav footer {
+  animation: rise 460ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+#nav header                     { animation-delay:  40ms; }
+#nav nav a:nth-of-type(1)       { animation-delay: 120ms; }
+#nav nav a:nth-of-type(2)       { animation-delay: 180ms; }
+#nav nav a:nth-of-type(3)       { animation-delay: 240ms; }
+#nav nav a:nth-of-type(4)       { animation-delay: 300ms; }
+#nav nav a:nth-of-type(5)       { animation-delay: 360ms; }
+#nav nav a:nth-of-type(6)       { animation-delay: 420ms; }
+#nav footer                     { animation-delay: 520ms; }
+
+#masthead { animation: rise 600ms 80ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+section { animation: nudge 500ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+section:nth-of-type(1) { animation-delay: 200ms; }
+section:nth-of-type(2) { animation-delay: 260ms; }
+section:nth-of-type(3) { animation-delay: 320ms; }
+section:nth-of-type(4) { animation-delay: 380ms; }
+section:nth-of-type(5) { animation-delay: 440ms; }
+section:nth-of-type(6) { animation-delay: 500ms; }
+
+/* Respect users who explicitly prefer no motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ───── Mobile ──────────────────────────────────────────────────────────── */
+@media (max-width: 880px) {
+  #nav {
+    position: static;
+    width: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-inset);
+    padding: 20px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  #nav nav { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+  #nav nav a { padding: 4px 8px; }
+  #nav footer { flex-basis: 100%; padding-top: 8px; border-top: 0; }
+  #content {
+    margin-left: 0;
+    padding: 32px 24px 64px;
+  }
+  #masthead h1 { font-size: 38px; }
+}
