@@ -66,7 +66,7 @@ When refreshing this section, run `az resource list -g rg-dadocar-dev-brs -o tab
 | Static Web App (Free) | `dadocar-dev-stapp-docs-brs` | Architecture & status site rendered from this `IaaS.MD` + `docs/decisions/`. Location: `eastus2` (SWA Free is not offered in `brazilsouth`; content is CDN-served globally). URL: <https://polite-rock-090b4930f.7.azurestaticapps.net>. Deploy: see `docs/site/README.md`. |
 | Static Web App (Free) | `dadocar-dev-stapp-www-brs` | Commercial / visual-architecture site (PT-BR), single-page, self-contained. Source: `docs/dadocar_diagrams_v2.html`; deploy snapshot: `docs/commercial-site/`. Location: `eastus2`. URL: <https://orange-island-0c113d10f.7.azurestaticapps.net>. Deploy: see `docs/commercial-site/README.md`. |
 | SQL Server (Standard) | `dadocar-dev-sql-webclient-dv02-brs` | Backs the customer-CRM simulator at `apps/webclient/`. SQL auth (`dadocaradmin`). Firewall: Azure services + operator IP. Suffix `dv02` was generated at first provision and is pinned in `apps/webclient/.azure-provision.state`. |
-| SQL Database (Serverless GP_S_Gen5_1) | `carros_ativos_db` on `dadocar-dev-sql-webclient-dv02-brs` | One table: `carros_ativos`. Min 0.5 vCore, auto-pause 60 min, LRS backup. Idle cost ≈ R$ 25–40/mo. Provision script: `apps/webclient/scripts/provision-azure.sh`. Migrations: `apps/webclient/db/migrations/`. |
+| SQL Database (Serverless GP_S_Gen5_1) | `carros_ativos_db` on `dadocar-dev-sql-webclient-dv02-brs` | Tables: `carros_ativos` (CRM demo stock), `kbb_consultas` (KBB / Molicar consultation history + 90-day cache for `/precos` — payload stored verbatim under NVARCHAR(MAX), key fields extracted into columns for list rendering). Min 0.5 vCore, auto-pause 60 min, LRS backup. Idle cost ≈ R$ 25–40/mo. Provision script: `apps/webclient/scripts/provision-azure.sh`. Migrations: `apps/webclient/db/migrations/`. |
 
 ### 2.2 Vercel resources
 
@@ -116,7 +116,7 @@ When refreshing this section, run `az resource list -g rg-dadocar-dev-brs -o tab
 | Query events | Event Hub `query-events` | ✅ wired today (fail-open emission per request; see [decisions/0001](decisions/0001-closed-beta-launch.md) + [next-steps/008](decisions/next-steps/008-data-lake-pipeline.md) for Capture wiring) |
 | Audit logs | App Insights via `context.log()` calls | ✅ wired today |
 | Molicar bearer token | In-process cache per pricing Function instance, refreshed 5 min before vendor `expires_in` | ✅ wired today |
-| KBB / Molicar pricing responses | In-flight only — not yet cached. Future: share `vehicles` container or add a `pricing` container | ⏳ not yet wired |
+| KBB / Molicar pricing responses | Webclient Azure SQL `kbb_consultas` table — full payload + extracted plate/brand/model/version/MY/fair-price/molicar-price. Acts as both a 90-day cache (re-queries skipped if a row exists for the placa within 90d) and the history feed for `/historico-kbb`. | ✅ wired today |
 
 ### 2.7 Observability & log access
 
