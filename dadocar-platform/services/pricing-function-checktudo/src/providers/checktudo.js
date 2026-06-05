@@ -142,6 +142,12 @@ async function submitOrder(querycode, keys, token) {
     body: JSON.stringify({ querycode: Number(querycode), keys, duplicity: false }),
   });
   const json = await res.json().catch(() => ({}));
+  // 206 "Consulta executada recentemente" — with duplicity:false the vendor
+  // refuses to re-run (and re-bill) a recently-queried document. We don't want
+  // to pay for a duplicate, so signal the caller to fetch the EXISTING result.
+  if (res.status === 206 || json?.status?.cod === 206) {
+    return { ok: false, duplicate: true, status: 206, message: vendorMessage(json, "Consulta executada recentemente") };
+  }
   if (!res.ok) {
     return {
       ok: false,
@@ -159,6 +165,27 @@ async function submitOrder(querycode, keys, token) {
     return { ok: true, completed: false, status: res.status, queryId: body.queryId, orderId: body.orderId, json };
   }
   return { ok: false, status: res.status, message: "Unexpected CheckTudo order response shape", json };
+}
+
+/**
+ * Find the most recent existing query for a document key (placa/chassi) that
+ * matches the requested querycode — used to recover the result on a 206
+ * "executada recentemente" without re-billing. Returns a queryId or null.
+ */
+async function findExistingQueryId(key, querycode, token) {
+  if (!key) return null;
+  const res = await fetchWithTimeout(
+    `${API_BASE}/query/document/${encodeURIComponent(key)}`,
+    { method: "GET", headers: { Authorization: token, Accept: "application/json" } },
+  );
+  if (!res.ok) return null;
+  const json = await res.json().catch(() => ({}));
+  const list = Array.isArray(json?.body) ? json.body : [];
+  const matches = list
+    .filter((q) => Number(q.queryCode) === Number(querycode))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const best = matches.find((q) => q.status === true) || matches[0];
+  return best ? best.queryId : null;
 }
 
 async function fetchResult(queryId, token) {
@@ -223,6 +250,42 @@ async function runQuery(querycode, keys) {
       return { ok: false, error: "auth_failed", message: err.message, upstream_status: 401, latency_ms: Date.now() - t0 };
     }
     order = await submitOrder(querycode, keys, token);
+  }
+
+  // 206 duplicate → recover the existing result instead of paying for a re-run.
+  if (!order.ok && order.duplicate) {
+    const key = keys.placa || keys.chassi || keys.renavam || keys.motor || null;
+    const existingId = await findExistingQueryId(key, querycode, token);
+    if (existingId) {
+      const result = await pollUntilReady(existingId, token);
+      if (result.ok) {
+        return {
+          ok: true,
+          data: result.data,
+          refClass: result.refClass,
+          queryId: existingId,
+          upstream_status: 200,
+          latency_ms: Date.now() - t0,
+          cached_upstream: true,
+          reused_upstream: true,
+        };
+      }
+      return {
+        ok: false,
+        error: result.pending ? "poll_timeout" : `result_${result.status}`,
+        message: result.message || "Falha ao recuperar a consulta existente.",
+        upstream_status: result.status,
+        queryId: existingId,
+        latency_ms: Date.now() - t0,
+      };
+    }
+    return {
+      ok: false,
+      error: "duplicate_no_result",
+      message: order.message || "Consulta executada recentemente, sem resultado recuperável.",
+      upstream_status: 206,
+      latency_ms: Date.now() - t0,
+    };
   }
 
   if (!order.ok) {
