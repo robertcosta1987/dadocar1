@@ -370,13 +370,14 @@
   <div class="masthead">
     <h1>Dadocar &mdash; Arquitetura&nbsp;Visual</h1>
     <p class="subtitle">Plataforma de revenda de dados veiculares (FIPE/Infocar) com aggregator multi-provider, cache-aside, billing events e analytics. Cada prancha mostra um corte do sistema em operação.</p>
-    <div class="version-badge">v2.3 · MVP operacional · APIM live · KBB cache + histórico em SQL</div>
+    <div class="version-badge">v2.4 · MVP operacional · APIM live · KBB + CheckTudo em SQL</div>
   </div>
 
   <div class="status-callout">
     <h3>O que mudou desde a versão anterior</h3>
     <p style="margin-bottom:10px"><strong>O projeto saiu do estado "Azure provisionado vazio" e entrou em operação MVP.</strong> Vários recursos antes tracejados agora estão sólidos:</p>
     <ul class="updates">
+      <li><strong>Integração CheckTudo — terceira Function App independente</strong> (<code>dadocar-dev-func-checktudo-brs</code>, Linux Y1 Node 22, plano de consumo próprio no mesmo resource group): dados veiculares por placa via API assíncrona da CheckTudo (login → <code>POST /api/query/order</code> → poll <code>GET /api/query/json-response/:id</code>). Produto selecionável por <code>querycode</code> (66 Veículo Total padrão, 67 Essencial, 13 Decod+Precificador, 71 Dados Cadastrais, 76 Decod+FIPE, 241 Decodificador V.4). Credenciais em KV (<code>checktudo-username</code>, <code>checktudo-password</code>). Nova página <code>/checktudo</code> no menu (ao lado de "Histórico KBB") com seletor de produto, renderização por seções e cache 90 dias em <code>checktudo_consultas</code> (chave placa+produto). ADR <code>0006</code>.</li>
       <li><strong>Histórico de consultas KBB + cache 90 dias em Azure SQL</strong> — nova tabela <code>kbb_consultas</code> em <code>carros_ativos_db</code> guarda cada consulta Molicar (payload completo + placa, marca, modelo, ano, preço justo, preço Molicar). O server action de <code>/precos</code> serve do cache antes de chamar a função; nova página <code>/historico-kbb</code> no menu lista as consultas como cards expansíveis com deep link de volta. ADR <code>0005</code>.</li>
       <li><strong>Segunda Function App — pricing aggregator KBB/Molicar</strong> (<code>dadocar-dev-func-pricing-brs</code>, Linux Y1 Node 22): rotas <code>/api/pricing/plate/{plate}</code> e <code>/api/pricing/vin/{vin}</code>, OAuth2 client_credentials contra Molicar, secrets em KV (<code>molicar-client-id</code>, <code>molicar-client-secret</code>); página <code>/precos</code> no webclient renderiza preços por canal (NewVehicle, UsedDealer, SellPrivateParty, SellDealer, FPP). ADR <code>0004</code>.</li>
       <li><strong>APIM agora é a porta de entrada do cliente</strong> — produto <code>dadocar-beta</code>, API <code>dadocar-vehicle-api</code> em <code>/v1</code>, primeira subscription <code>moneycar-tenanta-beta</code> emitida</li>

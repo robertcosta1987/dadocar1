@@ -1,0 +1,15 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "FUNCTIONS_EXTENSION_VERSION": "~4",
+
+    "// KEYVAULT_URL is REQUIRED. Same dev Key Vault used by enrichment-function.": "",
+    "KEYVAULT_URL": "https://dadocardevkvbrso3uo.vault.azure.net/"
+  },
+  "Host": {
+    "LocalHttpPort": 7073,
+    "CORS": "http://localhost:3000,http://localhost:3001"
+  }
+}
