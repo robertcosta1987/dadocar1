@@ -31,7 +31,7 @@ Dadocar is a vehicle-data API platform that resells Brazilian vehicle data (toda
 
 | Layer | Today's role | Future role |
 |---|---|---|
-| Edge / Frontend | Vercel-hosted test/admin UI (`dadocar1.vercel.app`) proxying to the aggregator. | A real customer-facing dashboard + sign-up + Stripe. The test app stays as an internal tool. |
+| Edge / Frontend | **Two Vercel apps**: the legacy test/admin UI (`dadocar1.vercel.app`, `apps/infocar-test`) and the productized **Placas360** customer app (`apps/webclient`) — authenticated (login + invite-gated registration), per-user **tenant isolation**, an enterprise UI, calling the pricing + CheckTudo functions and caching results in **Azure SQL**. See §2.8. | Self-serve sign-up + paywall + automatic per-customer provisioning + CRM (see [next-steps/016](decisions/next-steps/016-crm.md), [017](decisions/next-steps/017-paywall-self-serve-provisioning.md)). |
 | API gateway | Direct function key. | Azure APIM (Consumption tier already provisioned) with products + subscriptions + rate-limit policies. |
 | Aggregator | Azure Function App fans out to a registry of provider modules; merges into a single `sources[]` response. | Same, plus Cosmos cache reads/writes + Event Hub `query-events` emission for analytics. |
 | Providers | One: `infocar` (Codificação FIPE). | Many: Denatran, Checagem.tech, B3 scoring, vehicle-history, accident-history, etc. |
@@ -40,7 +40,7 @@ Dadocar is a vehicle-data API platform that resells Brazilian vehicle data (toda
 | Observability | App Insights + Log Analytics. | Same, plus a /admin dashboard. |
 | Identity | Function App's system-assigned Managed Identity has data-plane roles to Cosmos, Storage, Key Vault, Event Hub. | Same. |
 
-The MVP intentionally skips: customer apps, Stripe, APIM products/policies, prod environment, CI/CD.
+The MVP still skips: Stripe/paywall, self-serve provisioning, a CRM, APIM products/policies, prod environment, CI/CD. **New since the closed beta**: the webclient (Placas360) now has real authentication, per-user tenant isolation, a Master role, and an Anthropic-powered recall check — all on Azure SQL. See §2.8 and [decisions/0007](decisions/0007-webclient-productization.md).
 
 ---
 
@@ -118,9 +118,12 @@ When refreshing this section, run `az resource list -g rg-dadocar-dev-brs -o tab
 | Query events | Event Hub `query-events` | ✅ wired today (fail-open emission per request; see [decisions/0001](decisions/0001-closed-beta-launch.md) + [next-steps/008](decisions/next-steps/008-data-lake-pipeline.md) for Capture wiring) |
 | Audit logs | App Insights via `context.log()` calls | ✅ wired today |
 | Molicar bearer token | In-process cache per pricing Function instance, refreshed 5 min before vendor `expires_in` | ✅ wired today |
-| KBB / Molicar pricing responses | Webclient Azure SQL `kbb_consultas` table — full payload + extracted plate/brand/model/version/MY/fair-price/molicar-price. Acts as both a 90-day cache (re-queries skipped if a row exists for the placa within 90d) and the history feed for `/historico-kbb`. | ✅ wired today |
-| CheckTudo responses | Webclient Azure SQL `checktudo_consultas` table — full `data` payload + extracted brand/model/year/chassi, keyed by `placa + product_code`. 90-day cache (per placa+product — each product is a distinct paid query) and the saved-search feed on `/checktudo`. | ✅ wired today |
+| KBB / Molicar pricing responses | Webclient Azure SQL `kbb_consultas` — full payload + extracted plate/brand/model/version/MY/fair-price/molicar-price. **Indefinite** cache (kept until cleared manually — re-queries skipped if any row exists for the placa, regardless of age) and the saved-search feed on the **Tabela KBB** page. Owner-scoped via `owner_id` (per-tenant); Master reads all. | ✅ wired today |
+| CheckTudo responses | Webclient Azure SQL `checktudo_consultas` — full `data` payload + extracted brand/model/year/chassi, keyed by `placa + product_code`. **Indefinite** cache (per placa+product) and the saved-search feed on **Checa Tudo**. Also stores the AI recall verdict (`recall_afetado` / `recall_motivo`). Owner-scoped via `owner_id`; Master reads all. | ✅ wired today |
 | CheckTudo login token | In-process cache per CheckTudo Function instance (JWT, ~24h; re-login on 401) | ✅ wired today |
+| App users + invite codes | Webclient Azure SQL `users` + `invite_codes` — scrypt-hashed passwords (per-user salt), role (`admin`/`user`), single-use invite codes. First registered user becomes admin. | ✅ wired today |
+| Session | Signed **httpOnly** cookie (HMAC-SHA256 via `AUTH_SECRET`, ~7d) — stateless; verified in middleware (edge) and server. No server-side session store. | ✅ wired today |
+| Recall affected-chassi verdict | Computed once per consult by Claude (`claude-sonnet-4-6`, `ANTHROPIC_API_KEY`) and persisted on `checktudo_consultas`. | ✅ wired today |
 
 ### 2.7 Observability & log access
 
@@ -164,6 +167,25 @@ Gotcha: `az monitor app-insights query` targets the classic schema and will retu
 **Vercel-side logs** (separate from Azure) live in the Vercel runtime logs for the `dadocar1` project. Pull with `vercel logs --no-follow --since 30m -x` from inside the project root, or via the Deployments tab.
 
 The Function App's host invocation traces appear automatically. App-code `context.log()` calls also flow through `AppTraces`. Outbound dependency tracking (Infocar latency per call) and exception capture require the `@azure/monitor-opentelemetry` distro — not yet wired in MVP; see section 4.5 when adding it.
+
+### 2.8 Webclient app — Placas360 (`apps/webclient`)
+
+The customer-facing app, Next.js 16 (App Router) on Vercel, talking to the **pricing** and **CheckTudo** Azure Functions and persisting to **Azure SQL**. Branded **Placas360**; enterprise/ASP.NET-style UI. This is where the productization work landed (see [decisions/0007](decisions/0007-webclient-productization.md)).
+
+| Aspect | Detail |
+|---|---|
+| Vercel project | `webclient-fipe` (team `robertcostait-6892's projects`), repo `robertcosta1987/webclient_fipe`, prod branch `main`, root `apps/webclient`. Deploy = `git push` (auto). |
+| Database | Azure SQL `dadocar-dev-sql-webclient-dv02-brs` / DB `carros_ativos_db`. Tables: `carros_ativos`, `kbb_consultas`, `checktudo_consultas`, `users`, `invite_codes`. Migrations in `apps/webclient/db/migrations/*.sql` (run `npm run db:migrate`). |
+| Auth | Custom: scrypt password hashing (Node `crypto`, no native deps), signed httpOnly session cookie (HMAC-SHA256 via Web Crypto so it verifies in both edge middleware and Node). `middleware.ts` gates every route except `/login` + `/register`. Registration requires a valid single-use **invite code**; first user becomes `admin`; admins mint codes at `/admin/convites`. |
+| Tenant isolation | Every per-user table carries `owner_id`; all reads/writes filter by the logged-in user, so a tenant only sees its own cars + KBB + CheckTudo history/cache. |
+| Master role | `admin@3ahub.com.br` (set in `lib/auth/server.ts` `MASTER_EMAILS`) reads **across all tenants** — history lists and the cache check drop the owner filter (incl. legacy `owner_id = NULL` rows). Writes still record the acting user. |
+| Recall AI | On each CheckTudo consult, the vehicle chassi is compared against the recall campaign ranges by Claude (`claude-sonnet-4-6`); the verdict ("Chassi com Recall?" SIM/NÃO/Indeterminado + a one-line motivo) is persisted and shown in the full report (hover reveals the reason). `services/.../recallVerdict.ts`. |
+| FIPE price chart | Hovering "FIPE / Preço" shows an inline 12-month price-variation SVG chart, rendered directly from `informacoesFipe.historicoPreco` (no API call). |
+| Cache policy | KBB + CheckTudo results are cached **indefinitely** (kept until cleared manually) — no TTL expiry. |
+| Nav | Tabs: **Tabela KBB** (`/precos`, with inline saved-search history) and **Checa Tudo** (`/checktudo`), plus admin-only **Convites**. Carros Ativos / Buscar / Relatórios tabs and the "+ Adicionar Veículo" button are hidden. |
+| Env vars (Vercel prod + `.env.local`) | `DATABASE_URL` (Azure SQL conn string), `AUTH_SECRET` (session HMAC key), `ANTHROPIC_API_KEY` (recall verdict), `PRICING_API_APP_ID` / `PRICING_API_KEY`, `CHECKTUDO_API_APP_ID` / `CHECKTUDO_API_KEY`. |
+
+> Note: the webclient's Azure SQL server is a separate resource from the aggregator's Cosmos/Storage data plane in §2.1 — it is the app's own store, not the platform cache. The longer-term plan folds customer/billing/tenant state into the platform's `customers` model (Cosmos) + a CRM; see [next-steps/002](decisions/next-steps/002-customer-model-multi-tenancy.md), [016](decisions/next-steps/016-crm.md), [017](decisions/next-steps/017-paywall-self-serve-provisioning.md).
 
 ---
 
@@ -307,6 +329,23 @@ Mark dashed edges:
 
 Add a callout box: "Querying via `az monitor app-insights query` targets the classic schema and returns empty for workspace-based components. Always use `az monitor log-analytics query` against the workspace customer ID."
 
+### Brief 3.10 — Webclient auth + tenant isolation (sequence)
+
+**Context**: see §2.8. The Placas360 webclient (`apps/webclient`) gates every route via `middleware.ts`; sessions are signed httpOnly cookies (HMAC via `AUTH_SECRET`); data is owner-scoped by `owner_id`; the Master (`admin@3ahub.com.br`) reads across all tenants.
+
+**Prompt**: Generate a Mermaid `sequenceDiagram` with participants: Browser, `middleware.ts` (edge), Server Action (`actions/checktudo.ts`), Azure SQL (`carros_ativos_db`). Show:
+- Browser → middleware: any request; middleware verifies the `dc_session` cookie (HMAC). No/invalid session on a protected route → 302 `/login`; valid session on `/login`|`/register` → 302 `/precos`.
+- Login: `POST` login action → `users` lookup by email → scrypt verify → `Set-Cookie dc_session` (signed) → redirect `/precos`.
+- Register: requires a valid single-use `invite_codes` row → create `users` row (first ever = `admin`) → claim invite → set session.
+- A consult: action calls `requireScope()` → `{ userId, master }`; cache check `findFreshByPlaca(placa, master ? null : userId)` against `checktudo_consultas` (owner filter dropped for Master). Hit → return cached; miss → vendor call → insert with `owner_id = userId`.
+Label edges with the table + the owner-filter condition. Add a note: "Master drops `WHERE owner_id = @owner` for reads; writes always record the acting user."
+
+### Brief 3.11 — Recall affected-chassi verdict (Anthropic)
+
+**Context**: see §2.8. On a CheckTudo consult, the vehicle chassi is compared against the recall campaign ranges by Claude; the verdict is persisted on `checktudo_consultas` and shown in the report.
+
+**Prompt**: Generate a Mermaid `flowchart LR`. Nodes: CheckTudo consult result (`data.recall`), `extractRecall()` (chassi + campaign text), `computeRecallVerdict()` → Anthropic Messages API (`claude-sonnet-4-6`, `ANTHROPIC_API_KEY`), parse `VEREDITO`/`MOTIVO`, persist `recall_afetado`/`recall_motivo` on `checktudo_consultas`, render "Chassi com Recall?" (SIM=red / NÃO=green / Indeterminado) with hover-motivo. Mark the API node as `requires ANTHROPIC_API_KEY — degrades to "Indisponível" without it`. Note: "computed once per consult (also on the persist path); the report/history read the stored verdict — no per-view API call."
+
 ---
 
 ## 4. Extension patterns
@@ -398,6 +437,9 @@ This file must be updated alongside any change in the following categories:
 | CI/CD pipelines land | section 3.6 update — promote dashed "future" edges to solid |
 | Telemetry config changes (sampling, OTel distro, classic vs workspace) | 2.7 table mapping + 3.9 diagram brief + 4.5 wiring steps |
 | Cache layer wiring changes (containers, TTL, miss/hit semantics, VIN mode) | 2.6 row + 3.8 diagram brief + 4.6 extension pattern |
+| Webclient auth / tenancy / Master / session changes | 2.8 + 3.10 diagram brief + [decisions/0007](decisions/0007-webclient-productization.md) |
+| Webclient AI features (recall verdict, new model/prompt) | 2.6 + 2.8 + 3.11 diagram brief |
+| Webclient DB schema (new table / column / migration) | 2.6 + 2.8 |
 
 When in doubt: search this file for the old name or pattern before deciding what changes.
 

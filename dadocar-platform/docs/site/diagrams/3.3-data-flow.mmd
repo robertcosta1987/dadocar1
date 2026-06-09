@@ -24,3 +24,12 @@ flowchart LR
   FN ==>|fail-open emit<br/>per request| EH
   FN ==>|context.log| AI
   EH -. EH Capture<br/>next-steps/008 .-> SLAKE
+
+  %% ── Webclient (Placas360) — its own Azure SQL store + recall AI ──
+  WC[Placas360 webclient<br/>apps/webclient · Vercel]:::inflight
+  SQL[(Azure SQL carros_ativos_db<br/>kbb_consultas · checktudo_consultas<br/>owner_id-scoped · indefinite cache)]:::persisted
+  USR[(Azure SQL users · invite_codes<br/>scrypt · invite-gated · session=HMAC cookie)]:::persisted
+  ANTH[Anthropic API<br/>claude-sonnet-4-6 · recall verdict]:::inflight
+  WC ==>|cache + history<br/>owner-scoped · Master reads all| SQL
+  WC ==>|auth + registration| USR
+  WC -. recall_afetado/motivo<br/>persisted on checktudo_consultas .-> ANTH

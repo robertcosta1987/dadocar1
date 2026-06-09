@@ -42,10 +42,11 @@ const main = async () => {
   copied.push(await copy("decisions/0001-closed-beta-launch.md", "0001-closed-beta-launch.md"));
   copied.push(await copy("decisions/0002-web-deploy-aesthetics-standard.md", "0002-web-deploy-aesthetics-standard.md"));
   copied.push(await copy("decisions/0003-doc-update-workflow.md", "0003-doc-update-workflow.md"));
+  copied.push(await copy("decisions/0007-webclient-productization.md", "0007-webclient-productization.md"));
   copied.push(await copy("decisions/next-steps/README.md", "next-steps-README.md"));
 
-  // 015 individual gap items.
-  for (let i = 1; i <= 15; i++) {
+  // individual gap items.
+  for (let i = 1; i <= 18; i++) {
     const num = String(i).padStart(3, "0");
     const files = await fs.readdir(path.join(docsRoot, "decisions/next-steps"));
     const match = files.find(f => f.startsWith(`${num}-`));

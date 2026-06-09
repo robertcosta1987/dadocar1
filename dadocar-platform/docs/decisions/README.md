@@ -36,6 +36,12 @@ When the state changes. The "Current state" table is the living view. Append a d
 | # | Title | Status |
 |---|---|---|
 | [0001](0001-closed-beta-launch.md) | Closed-beta launch + immediate data-lake foundations | Active |
+| [0002](0002-web-deploy-aesthetics-standard.md) | Web-deploy aesthetics standard | Active |
+| [0003](0003-doc-update-workflow.md) | Doc-update workflow on every deploy | Active |
+| [0004](0004-pricing-function-molicar.md) | Pricing aggregator (KBB / Molicar) as a second Function App | Active |
+| [0005](0005-kbb-consultas-cache-and-history.md) | KBB consultation history + cache on Azure SQL | Active |
+| [0006](0006-checktudo-integration.md) | CheckTudo vehicle-data integration | Active |
+| [0007](0007-webclient-productization.md) | Webclient productization: auth, tenant isolation, Master, recall AI | Active |
 
 ## Next steps
 

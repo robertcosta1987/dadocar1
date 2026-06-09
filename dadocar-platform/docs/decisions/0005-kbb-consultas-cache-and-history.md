@@ -124,10 +124,14 @@ newest one.
   user model (see [next-steps/002](next-steps/002-customer-model-multi-tenancy.md)),
   add a `consulted_by` column then.
 
+## Updates
+
+- **2026-06-08** — The 90-day TTL was **removed**: cached consults are now kept **indefinitely** (reused regardless of age, cleared only manually), and the "90 dias" labels were dropped from the UI. Rows are also now owner-scoped (`owner_id`) and the history feed moved onto the **Tabela KBB** page. See [0007](0007-webclient-productization.md). The title's "90-day" wording is retained for history; the live policy is indefinite.
+
 ## References
 
-- Migration: `apps/webclient/db/migrations/0002_kbb_consultas.sql`
+- Migration: `apps/webclient/db/migrations/0002_kbb_consultas.sql` (+ `0005_tenant_owner.sql` for `owner_id`)
 - Repository: `apps/webclient/src/lib/db/kbbConsultas.ts`
 - Server action: `apps/webclient/src/app/actions/precos.ts`
-- History page: `apps/webclient/src/app/historico-kbb/`
+- History page: now inline on `apps/webclient/src/app/precos/` (Tabela KBB); `historico-kbb/` retained
 - Cache badge + force-refresh: `apps/webclient/src/app/precos/PrecosClient.tsx`

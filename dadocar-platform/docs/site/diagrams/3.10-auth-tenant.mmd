@@ -1,0 +1,35 @@
+sequenceDiagram
+  autonumber
+  participant B as Browser
+  participant M as middleware.ts<br/>(edge gate)
+  participant A as Server Action<br/>(actions/checktudo.ts)
+  participant DB as Azure SQL<br/>(carros_ativos_db)
+
+  Note over B,M: Every route except /login + /register requires a session
+  B->>M: request /checktudo
+  M->>M: verify dc_session cookie<br/>(HMAC via AUTH_SECRET)
+  alt no / invalid session
+    M-->>B: 302 /login
+  else valid session on /login|/register
+    M-->>B: 302 /precos
+  end
+
+  Note over B,DB: Login (invite-gated registration is analogous)
+  B->>A: POST login (email, senha)
+  A->>DB: SELECT users WHERE email=@e
+  A->>A: scrypt verify (timing-safe)
+  A-->>B: Set-Cookie dc_session (signed httpOnly) → /precos
+
+  Note over B,DB: A consult — owner-scoped, Master reads all
+  B->>A: consultar placa (Checa Tudo)
+  A->>A: requireScope() → {userId, master}
+  A->>DB: findFreshByPlaca(placa, product,<br/>master ? null : userId)
+  alt cache HIT (own row, or any row if Master)
+    DB-->>A: cached consult (incl. recall verdict)
+    A-->>B: render (no vendor call)
+  else MISS
+    A->>A: vendor call + recall verdict
+    A->>DB: INSERT owner_id = userId
+    A-->>B: render
+  end
+  Note over A,DB: Master drops "WHERE owner_id = @owner" for reads<br/>(incl. legacy owner_id=NULL). Writes always record the acting user.

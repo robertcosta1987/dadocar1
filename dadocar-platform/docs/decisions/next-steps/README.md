@@ -28,6 +28,21 @@ Tracked work items that the platform needs to reach a real production posture. E
 | [013](013-otel-distro-deps-exceptions.md) | OpenTelemetry distro for `AppDependencies` + `AppExceptions` | Open | 1 day |
 | [014](014-production-environment.md) | Production environment provisioning + promotion process | Open | 1-2 weeks |
 | [015](015-multi-region-dr.md) | Multi-region / disaster recovery strategy | Open | 2-3 weeks |
+| [016](016-crm.md) | CRM: customers, payments, profit & spend tracking | Open | 2-3 weeks |
+| [017](017-paywall-self-serve-provisioning.md) | Paywall + self-serve registration → tenant provisioning → CRM | Open | 3-4 weeks |
+| [018](018-ready-to-market.md) | **Ready to Market?** — readiness rollup (sell / scale / stabilize / secure / profit) | Tracking | — |
+
+## Ready to Market?
+
+[**018-ready-to-market.md**](018-ready-to-market.md) is the single readiness view of what still has to be true before this is a sellable, scalable, stable, secure, profitable product. In short:
+
+- **Sellable** — paywall + self-serve provisioning + customer model + metered API: [002](002-customer-model-multi-tenancy.md), [003](003-stripe-and-provisioning.md), [017](017-paywall-self-serve-provisioning.md), [001](001-apim-products-subscriptions.md). *(Access control + per-tenant isolation already done — [0007](../0007-webclient-productization.md).)*
+- **Scalable** — Cosmos RU/autoscale [007](007-cosmos-autoscale-and-ru-sizing.md), shared token cache [010](010-token-manager-shared-cache.md), data pipeline [008](008-data-lake-pipeline.md).
+- **Stable** — CI/CD [004](004-cicd-github-actions.md), alerts/SLOs [005](005-monitor-alerts-and-slos.md), prod env [014](014-production-environment.md), DR [015](015-multi-region-dr.md), OTel [013](013-otel-distro-deps-exceptions.md).
+- **Secured** — network hardening [006](006-network-hardening.md), LGPD de-identification [009](009-deidentification-job.md). *(App auth + secrets handling done — [0007](../0007-webclient-productization.md).)*
+- **Profitable** — CRM with payment + per-query vendor-cost + profit/margin tracking: [016](016-crm.md).
+
+**Critical path to first revenue:** 002 → 003 → 016 → 017 (with 001 for metered API).
 
 ## Notes
 

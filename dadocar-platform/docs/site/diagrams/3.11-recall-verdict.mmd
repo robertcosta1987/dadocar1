@@ -1,0 +1,19 @@
+flowchart LR
+  classDef store fill:#e8f5e9,stroke:#1f7a1f
+  classDef ext fill:#fff,stroke:#888,stroke-dasharray: 5 5
+  classDef ui fill:#eef,stroke:#55a
+
+  R[CheckTudo consult<br/>data.recall.detalhes]
+  EX["extractRecall()<br/>chassi + campaign text"]
+  CV["computeRecallVerdict()"]
+  AN[Anthropic Messages API<br/>claude-sonnet-4-6<br/>requires ANTHROPIC_API_KEY]:::ext
+  P["parse VEREDITO + MOTIVO"]
+  DB[(checktudo_consultas<br/>recall_afetado · recall_motivo)]:::store
+  UI["Report field 'Chassi com Recall?'<br/>SIM=red · NÃO=green · Indeterminado<br/>hover → motivo"]:::ui
+
+  R --> EX --> CV --> AN --> P
+  P ==>|persist once per consult| DB
+  DB ==>|read stored verdict<br/>no per-view API call| UI
+
+  N[/"No key → 'Indisponível'<br/>· no recall data → field hidden"/]:::ext
+  AN -.-> N
