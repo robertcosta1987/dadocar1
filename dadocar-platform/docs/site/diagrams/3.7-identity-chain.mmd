@@ -1,21 +1,35 @@
 graph LR
   classDef planned stroke-dasharray: 3 3,stroke:#0a6,color:#0a6
+  classDef vendor fill:#fdecef,stroke:#a3324b
 
   OP[Operator<br/>human]
   SP[Deployer SP<br/>6763aeb5-...]
-  FNMI[Function App MI<br/>707fc169-...]
+  KV[(Key Vault dadocardevkvbrso3uo<br/>infocar-* · molicar-client-id/secret · checktudo-username/password)]
+
+  FNMI[enrich Function MI<br/>707fc169-...]
+  PRMI[pricing Function MI<br/>6d443573-...]
+  CTMI[checktudo Function MI<br/>0a0812f7-...]
   APIMI[APIM MI]:::planned
-  KV[(Key Vault dadocardevkvbrso3uo<br/>infocar-id-key · infocar-username · infocar-password)]
-  FN[Function App<br/>dadocar-dev-func-enrich-brs]
-  CACHE[In-process token cache<br/>~7h45m]
-  INFOCAR[Infocar<br/>POST /Token/GerarToken]
+
+  FN[Function App · enrich]
+  FNPR[Function App · pricing]
+  FNCT[Function App · checktudo]
+
+  INFOCAR[Infocar<br/>POST /Token/GerarToken]:::vendor
+  MOLICAR[Molicar / KBB<br/>OAuth2 client_credentials]:::vendor
+  CHECKTUDO[CheckTudo<br/>auth/login → order/poll]:::vendor
 
   OP ==>|az CLI as SP| SP
   SP ==>|Secrets Officer<br/>read+write| KV
-  FNMI ==>|Secrets User<br/>read| KV
+  FNMI ==>|Secrets User| KV
+  PRMI ==>|Secrets User| KV
+  CTMI ==>|Secrets User| KV
   APIMI -. Secrets User (future) .-> KV
-  KV ==>|DefaultAzureCredential| FN
-  FN ==>|client_id, username, password| INFOCAR
-  INFOCAR ==>|bearer token| FN
-  FN ==>|stash| CACHE
-  CACHE ==>|reuse on subsequent calls| FN
+
+  KV ==>|infocar-*| FN
+  KV ==>|molicar-*| FNPR
+  KV ==>|checktudo-*| FNCT
+
+  FN ==>|bearer token, cached ~7h45m| INFOCAR
+  FNPR ==>|access_token, cached| MOLICAR
+  FNCT ==>|JWT ~24h, re-login on 401| CHECKTUDO

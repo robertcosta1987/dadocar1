@@ -25,3 +25,5 @@ sequenceDiagram
   I-->>F: vehicle + FIPE payload
   F-->>V: {query, generated_at, ran_providers, sources:[{id,ok,data,latency_ms}]}
   V-->>B: JSON body (verbatim)
+
+  Note over B,I: This is the ENRICHMENT leg (Infocar / FIPE). There are two more legs<br/>with the same shape, consumed by the Placas360 webclient:<br/>• pricing fn dadocar-dev-func-pricing-brs → Molicar / KBB<br/>• checktudo fn dadocar-dev-func-checktudo-brs → CheckTudo<br/>Each function owns one vendor + its own KV secrets + token cache.

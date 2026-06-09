@@ -369,7 +369,7 @@
 
   <div class="masthead">
     <h1>Dadocar &mdash; Arquitetura&nbsp;Visual</h1>
-    <p class="subtitle">Plataforma de revenda de dados veiculares (FIPE/Infocar) com aggregator multi-provider, cache-aside, billing events e analytics. Cada prancha mostra um corte do sistema em operação.</p>
+    <p class="subtitle">Plataforma de revenda de dados veiculares — <strong>3 providers</strong> (Infocar/FIPE · Molicar/KBB · CheckTudo) em 3 Function Apps, com cache-aside, billing events e analytics. Cada prancha mostra um corte do sistema em operação.</p>
     <div class="version-badge">v2.5 · Placas360 — auth + multi-tenant + recall IA · cache indefinido</div>
   </div>
 
@@ -418,7 +418,7 @@
   <!-- ============================================================== -->
   <h2>1. Visão Geral — Estado Atual (Vercel + Azure DEV operacional)</h2>
   <p class="diagram-desc">
-    Hoje o projeto roda em <strong>duas pernas integradas</strong>: o frontend e proxy na Vercel (<code>dadocar1.vercel.app</code>) e a aggregator function na Azure (<code>rg-dadocar-dev-brs</code>). A função chama Infocar via provider, escreve no Cosmos cache e emite eventos no Event Hub.
+    O projeto roda na Azure (<code>rg-dadocar-dev-brs</code>) com <strong>3 Function Apps, uma por vendor</strong>: enrich → <strong>Infocar</strong> (FIPE, cache-aside Cosmos + Event Hub), pricing → <strong>Molicar/KBB</strong>, checktudo → <strong>CheckTudo</strong>. O frontend/proxy <code>dadocar1.vercel.app</code> consome o enrich; o webclient <strong>Placas360</strong> consome pricing + checktudo.
   </p>
   <div class="diagram-card">
     <svg viewBox="0 0 1200 720" xmlns="http://www.w3.org/2000/svg">
@@ -491,16 +491,22 @@
       <text x="590" y="174" fill="#fbbf24" font-size="9" text-anchor="middle">empty · sem products/policies (MVP)</text>
 
       <!-- Function App (enrichment) -->
-      <rect x="750" y="115" width="410" height="55" rx="8" fill="#14532d" stroke="#22c55e" stroke-width="2"/>
-      <text x="955" y="135" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Enrichment Function App ● ATIVA</text>
-      <text x="955" y="150" fill="#bbf7d0" font-size="9" text-anchor="middle">dadocar-dev-func-enrich-brs · Node 20 · vehicleLookup + infocar provider</text>
-      <text x="955" y="163" fill="#fde68a" font-size="9" font-style="italic" text-anchor="middle">Promise.allSettled aggregator · cache-aside Cosmos · sources[]</text>
+      <rect x="750" y="112" width="410" height="46" rx="8" fill="#14532d" stroke="#22c55e" stroke-width="2"/>
+      <text x="955" y="129" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">Enrichment Function App ● ATIVA</text>
+      <text x="955" y="143" fill="#bbf7d0" font-size="8.5" text-anchor="middle">dadocar-dev-func-enrich-brs · Node 20 · vehicleLookup + infocar provider</text>
+      <text x="955" y="153" fill="#fde68a" font-size="8" font-style="italic" text-anchor="middle">Promise.allSettled aggregator · cache-aside Cosmos · sources[]</text>
 
       <!-- Function App (pricing) -->
-      <rect x="750" y="178" width="410" height="55" rx="8" fill="#14532d" stroke="#22c55e" stroke-width="2"/>
-      <text x="955" y="198" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Pricing Function App ● ATIVA (NOVA)</text>
-      <text x="955" y="213" fill="#bbf7d0" font-size="9" text-anchor="middle">dadocar-dev-func-pricing-brs · Node 22 · pricingLookup + molicar provider</text>
-      <text x="955" y="226" fill="#fde68a" font-size="9" font-style="italic" text-anchor="middle">OAuth2 client_credentials · KBB price channels · /precos no webclient</text>
+      <rect x="750" y="162" width="410" height="46" rx="8" fill="#14532d" stroke="#22c55e" stroke-width="2"/>
+      <text x="955" y="179" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">Pricing Function App ● ATIVA</text>
+      <text x="955" y="193" fill="#bbf7d0" font-size="8.5" text-anchor="middle">dadocar-dev-func-pricing-brs · Node 22 · vendor: Molicar / KBB</text>
+      <text x="955" y="203" fill="#fde68a" font-size="8" font-style="italic" text-anchor="middle">OAuth2 client_credentials · KBB price channels · /precos (Tabela KBB)</text>
+
+      <!-- Function App (checktudo) -->
+      <rect x="750" y="212" width="410" height="46" rx="8" fill="#14532d" stroke="#22c55e" stroke-width="2"/>
+      <text x="955" y="229" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">CheckTudo Function App ● ATIVA</text>
+      <text x="955" y="243" fill="#bbf7d0" font-size="8.5" text-anchor="middle">dadocar-dev-func-checktudo-brs · Node 22 · vendor: CheckTudo</text>
+      <text x="955" y="253" fill="#fde68a" font-size="8" font-style="italic" text-anchor="middle">login → order → poll · /checktudo (Checa Tudo) · recall IA</text>
 
       <!-- App Service Plan -->
       <rect x="450" y="195" width="280" height="40" rx="8" fill="#1e293b" stroke="#94a3b8" stroke-width="1.5"/>
@@ -512,9 +518,9 @@
       <text x="570" y="278" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">Key Vault ● ACTIVE</text>
       <text x="570" y="292" fill="#fed7aa" font-size="9" text-anchor="middle">dadocardevkvbrso3uo (RBAC)</text>
       <text x="570" y="307" fill="#86efac" font-size="9" font-weight="600" text-anchor="middle">infocar-id-key · username · password ✓</text>
-      <text x="570" y="320" fill="#86efac" font-size="9" font-weight="600" text-anchor="middle">molicar-client-id · molicar-client-secret ✓</text>
+      <text x="570" y="320" fill="#86efac" font-size="9" font-weight="600" text-anchor="middle">molicar-client-id/secret · checktudo-username/password ✓</text>
       <text x="570" y="335" fill="#fbbf24" font-size="8" font-style="italic" text-anchor="middle">cached 5min via getSecrets()</text>
-      <text x="570" y="348" fill="#fbbf24" font-size="8" font-style="italic" text-anchor="middle">2 MIs com Secrets User role</text>
+      <text x="570" y="348" fill="#fbbf24" font-size="8" font-style="italic" text-anchor="middle">3 Function MIs com Secrets User role</text>
 
       <!-- COSMOS -->
       <rect x="710" y="260" width="450" height="130" rx="8" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2"/>
@@ -554,11 +560,13 @@
       <text x="1005" y="563" fill="#94a3b8" font-size="9" text-anchor="middle">storage de telemetria</text>
       <text x="1005" y="578" fill="#fbbf24" font-size="8" font-style="italic" text-anchor="middle">use AppRequests/AppTraces (não classic schema)</text>
 
-      <!-- INFOCAR -->
-      <rect x="510" y="615" width="600" height="55" rx="8" fill="#831843" stroke="#ec4899" stroke-width="2"/>
-      <text x="810" y="636" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">Infocar (datacast3.com) · único provider hoje</text>
-      <text x="810" y="652" fill="#fbcfe8" font-size="10" text-anchor="middle">POST /api/Token/GerarToken (token ~7h45m cache in-proc)</text>
-      <text x="810" y="664" fill="#fbcfe8" font-size="10" text-anchor="middle">GET /api/v1.0/CodificacaoFipe/placa/{plate}</text>
+      <!-- VENDORS (3 providers, one per Function App) -->
+      <rect x="510" y="610" width="600" height="92" rx="8" fill="#831843" stroke="#ec4899" stroke-width="2"/>
+      <text x="810" y="628" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Vendors externos · 3 providers integrados (1 por Function App)</text>
+      <text x="810" y="646" fill="#fbcfe8" font-size="9.5" text-anchor="middle">Infocar (datacast3.com) — Codificação FIPE · token ~7h45m · enrich fn</text>
+      <text x="810" y="662" fill="#fbcfe8" font-size="9.5" text-anchor="middle">Molicar / KBB — OAuth2 client_credentials · pricing fn</text>
+      <text x="810" y="678" fill="#fbcfe8" font-size="9.5" text-anchor="middle">CheckTudo (checktudo.com.br) — login + order/poll · checktudo fn</text>
+      <text x="810" y="694" fill="#f9a8d4" font-size="8" font-style="italic" text-anchor="middle">cada função tem seus próprios secrets em KV + cache de token</text>
 
       <!-- Arrows -->
       <line x1="132" y1="160" x2="198" y2="160" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow1)"/>
@@ -586,7 +594,7 @@
       <div class="legend-item"><div class="legend-swatch" style="background:#7c2d12"></div>Key Vault / secrets</div>
       <div class="legend-item"><div class="legend-swatch" style="background:#1e1b4b"></div>Cosmos containers</div>
       <div class="legend-item"><div class="legend-swatch" style="background:#312e81"></div>Event Hub</div>
-      <div class="legend-item"><div class="legend-swatch" style="background:#831843"></div>Infocar (provider externo)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#831843"></div>Vendors externos (Infocar · Molicar/KBB · CheckTudo)</div>
     </div>
   </div>
 
