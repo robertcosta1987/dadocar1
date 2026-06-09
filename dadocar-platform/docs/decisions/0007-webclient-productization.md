@@ -34,6 +34,7 @@ Make the webclient a closed, multi-tenant app — **Placas360** — with custom 
 | `owner_id` on `carros_ativos` / `kbb_consultas` / `checktudo_consultas` (migration 0005) | ✅ live |
 | Master cross-tenant reads (`admin@3ahub.com.br`) | ✅ live |
 | Recall verdict via Claude (migration 0006) + backfill | ✅ live |
+| Parecer de Compra — AI buy/risk verdict (migration 0007, Haiku) + backfill | ✅ live |
 | Indefinite cache (90-day TTL removed) | ✅ live |
 | `AUTH_SECRET` / `ANTHROPIC_API_KEY` set in Vercel + `.env.local` | ✅ live |
 | Self-serve sign-up + paywall + auto provisioning | ⏳ [next-steps/017](next-steps/017-paywall-self-serve-provisioning.md) |
