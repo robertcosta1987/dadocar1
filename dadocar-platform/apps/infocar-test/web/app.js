@@ -247,19 +247,35 @@ function renderResult(body, meta) {
   metaEl.appendChild(metaPill("endpoint", meta.endpoint));
   metaEl.appendChild(metaPill("upstream",  meta.upstreamLatencyMs ? `${meta.upstreamLatencyMs} ms` : "—"));
   metaEl.appendChild(metaPill("ts",         meta.startedAt.toISOString()));
+  // Cache state pill — explicit so a HIT is visually distinguishable from a MISS.
+  if (body && typeof body.cached === "boolean") {
+    const label = body.cached ? `cache HIT (${body.cached_at || "?"})` : "cache MISS";
+    metaEl.appendChild(metaPill("cache", label));
+  }
   for (const s of sources) {
     const badge = `${s.display_name || s.id}: ${s.ok ? "ok" : (s.error || "fail")}${s.latency_ms != null ? ` (${s.latency_ms}ms)` : ""}`;
     metaEl.appendChild(metaPill("source", badge));
   }
 
   // Dados do Veículo.
+  // Diagnose-on-empty: instead of a generic fallback, tell the user *why*
+  // the card is empty (no sources / no ok sources / source ok but no
+  // dadosDoVeiculo). Helps triage when a vendor returns 200 + empty body.
   const dados = primary?.data?.dados?.dadosDoVeiculo || {};
   const grid = $("dadosGrid");
   grid.innerHTML = "";
   const entries = Object.entries(dados);
   if (entries.length === 0) {
-    const note = document.createElement("dd"); note.textContent = "Nenhum dado retornado."; note.className = "empty";
+    let reason = "Nenhum dado retornado.";
+    if (sources.length === 0) reason = "Resposta sem campo 'sources[]'.";
+    else if (okSources.length === 0) {
+      const errs = sources.map(s => `${s.id}: ${s.error || (s.ok ? "sem 'data'" : "fail")}`).join(" · ");
+      reason = `Nenhuma fonte respondeu com sucesso (${errs}).`;
+    } else if (!primary?.data?.dados) reason = "Resposta sem 'data.dados'.";
+    else if (!primary?.data?.dados?.dadosDoVeiculo) reason = "Resposta sem 'dadosDoVeiculo' — formato inesperado.";
+    const note = document.createElement("dd"); note.textContent = reason; note.className = "empty";
     grid.appendChild(note);
+    console.warn("[render] empty dados grid:", { reason, body });
   } else {
     for (const [k, v] of entries) {
       const dt = document.createElement("dt"); dt.textContent = humanLabel(k);

@@ -36,6 +36,7 @@ const { app } = require("@azure/functions");
 const providers = require("../providers");
 const { PLATE_RE, VIN_RE, normalizePlate, normalizeVin } = require("../lib/validation");
 const cache = require("../lib/cache");
+const { emitQueryEvent } = require("../lib/queryEvents");
 
 /**
  * Shared lookup handler used by both the plate and the chassi routes.
@@ -66,6 +67,22 @@ async function handleLookup(request, context, mode /* "plate" | "vin" */) {
     const hit = await cache.getCachedByPlate(raw);
     if (hit) {
       context.log(`vehicle plate q=${raw.slice(0, 3)}*** cache=HIT cached_at=${hit.fetched_at}`);
+
+      // Analytics event for the cached hit. Fail-open, awaited briefly.
+      await emitQueryEvent({
+        kind:             mode,
+        queryValue:       raw,
+        cached:           true,
+        cachedAt:         hit.fetched_at,
+        ranProviders:     hit.payload?.ran_providers || [],
+        skippedProviders: hit.payload?.skipped_providers || [],
+        sources:          (hit.payload?.sources || []).map(s => ({
+          id: s.id, ok: s.ok, error: s.error, upstream_status: s.upstream_status, latency_ms: s.latency_ms,
+        })),
+        invocationId:     context.invocationId,
+        contextLog:       (m) => context.log(m),
+      });
+
       return {
         status: 200,
         jsonBody: {
@@ -156,6 +173,21 @@ async function handleLookup(request, context, mode /* "plate" | "vin" */) {
       context.log(`[cache] write threw outside fail-open: ${err && err.message}`),
     );
   }
+
+  // Analytics event for the fan-out. Fail-open, awaited briefly. Captured
+  // for every lookup — cached or not, succeeded or not — so the
+  // downstream analytics layer can build cache-hit ratio, latency
+  // histograms, and error patterns over time.
+  await emitQueryEvent({
+    kind:             mode,
+    queryValue:       raw,
+    cached:           false,
+    cachedAt:         null,
+    ranProviders:     responseBody.ran_providers,
+    skippedProviders: responseBody.skipped_providers,
+    sources:          sources,
+    invocationId:     context.invocationId,
+  });
 
   return { status: 200, jsonBody: responseBody };
 }

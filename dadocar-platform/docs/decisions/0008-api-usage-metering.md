@@ -37,6 +37,7 @@ Add a metering + subscription layer on the webclient's Azure SQL, and an admin-o
 | Usage recorded on live (billable) **and** cache (non-billable) consults, split by `source` (migration 0010) | ✅ live |
 | `/admin/uso-apis` "Usage Report for APIs" — live vs cache, admin-only | ✅ live |
 | 6 APIM products (one per consult type) + Moneycar subscriptions | ✅ live |
+| Internal subscription **TestSubInternal** (`SUB-TESTINTERNAL-001`) → `admin@3ahub.com.br`; APIM sub `testsubinternal` (all-APIs); admin's usage backfilled into the report (`scripts/seed-internal-subscription.ts`) | ✅ live |
 | Route CheckTudo traffic through APIM (gateway enforcement) | ⏳ not wired |
 | KBB / Infocar metering | ⏳ not wired (CheckTudo-only by scope) |
 | Admin UI to create subscriptions / assign to users | ⏳ next step |

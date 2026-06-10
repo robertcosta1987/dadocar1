@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@azure/cosmos": "^4.9.3",
+    "@azure/event-hubs": "^6.0.4",
     "@azure/functions": "^4.5.1",
     "@azure/identity": "^4.4.1",
     "@azure/keyvault-secrets": "^4.8.0"
