@@ -11,12 +11,14 @@
 ## Decision
 
 1. **Admin "Adicionar Assinatura" page** (`/admin/assinaturas`, admin/master only). One form — Nome, Empresa, E-mail, Tipo de Consumo, Produtos — creates **in one step**: a login **user** (`role=user`, `must_change_password=1`, linked to the subscription), a **subscription** with a consumption plan, the **product entitlements**, and a **customer/CRM record** (`customers`). It returns a **one-time temporary password** for the admin to hand over.
-2. **Two consumption models**, chosen per subscription via `subscriptions.plan_type`:
-   - **`consultas`** — per-product credit counts (`subscription_quotas.granted/used`), e.g. 20× type 66.
-   - **`cash`** — a R$ budget (`subscriptions.spend_limit_brl` / `spent_brl`) across the contracted products.
-   The checkbox-selected products are the contracted set (a `subscription_quotas` row each; `granted` NULL = "allowed" under the cash model).
-3. **Enforcement on the live path only** (`actions/checktudo.ts`). Before the vendor call, atomically **reserve** a credit (`UPDATE … SET used=used+1 WHERE used<granted`) or budget (`UPDATE … SET spent_brl=spent_brl+price WHERE spent_brl+price<=spend_limit_brl`); `@@ROWCOUNT=0` → block with a friendly message and no call. **Refund** on a failed vendor call. **Cache hits are never enforced** (they return earlier), so cached consults never consume the allowance. **Master and plan-less subscriptions (`plan_type` NULL) are unlimited** — so Moneycar/TestSubInternal and the operator are unaffected.
+2. **Three consumption models**, chosen per subscription via `subscriptions.plan_type`:
+   - **`consultas`** — a single **hard cap on the TOTAL number of live queries** (`query_limit`/`query_used`), pooled across the contracted products.
+   - **`cash`** — a mandatory prepaid R$ budget (`spend_limit_brl`/`spent_brl`) across the contracted products.
+   - **`ondemand`** — open-ended, billed at end of cycle, with an **OPTIONAL** R$ cap (`spend_limit_brl` NULL = no cap; if set, blocks to prevent overspend).
+   The checkbox-selected products are the contracted set (`subscription_quotas` rows; `granted` now just marks "allowed").
+3. **Enforcement on the live path only** (`actions/checktudo.ts`). Before the vendor call, atomically **reserve** against the plan — a query (`UPDATE … SET query_used=query_used+1 WHERE query_used<query_limit`) for `consultas`, or budget (`UPDATE … SET spent_brl=spent_brl+price WHERE spend_limit_brl IS NULL OR spent_brl+price<=spend_limit_brl`) for `cash`/`ondemand` (an on-demand sub with no cap never blocks). `@@ROWCOUNT=0` → block with a friendly message and no call. **Refund** on a failed vendor call. **Cache hits are never enforced** (they return earlier), so cached consults never consume the allowance. **Master and plan-less subscriptions (`plan_type` NULL) are unlimited** — so Moneycar/TestSubInternal and the operator are unaffected.
 4. **Forced password change on first login.** `users.must_change_password` is carried into the session (`mustChange`); `middleware.ts` confines such a user to `/trocar-senha` until they set a new password (`changePassword` action clears the flag and re-issues the session). New password is scrypt-hashed like the rest of auth.
+5. **APIM subscription created from the app.** Provisioning also creates a matching subscription in API Management (all-APIs scope, id = `sub_key`) via a **service principal** (`lib/apim.ts`, client-credentials → ARM PUT), gated on `AZURE_*`/`APIM_*` env. Best-effort: the result reports the APIM status; an APIM failure doesn't block the app-side creation. SP `dadocar-webclient-apim` holds **API Management Service Contributor** on the APIM; secrets live in Vercel env + `.env.local` (gitignored).
 
 ## Consequences
 
@@ -29,11 +31,14 @@
 | Item | State |
 |---|---|
 | `subscriptions.plan_type` / `spend_limit_brl` / `spent_brl`; `subscription_quotas`; `customers`; `users.must_change_password` (migration 0011) | ✅ live |
+| Pooled `query_limit`/`query_used` + `ondemand` plan (migration 0012) | ✅ live |
 | `/admin/assinaturas` provisioning page (admin-only) + temp password | ✅ live |
-| Consumption enforcement (count + cash) on live CheckTudo consults; cache never counts; master/plan-less unlimited | ✅ live |
+| Three plans: Quantidade de Consultas (pooled hard cap), Valor em Reais, On-Demand (optional cap) | ✅ live |
+| Consumption enforcement on live CheckTudo consults; cache never counts; master/plan-less unlimited | ✅ live |
+| APIM subscription auto-created on provisioning (service principal `dadocar-webclient-apim`) | ✅ live |
 | Forced first-login password change (`/trocar-senha` + middleware gate) | ✅ live |
 | Admin nav link "Adicionar Assinatura" | ✅ live |
-| Show granted/used/remaining (and budget) in the Usage Report | ⏳ next |
+| Show used/remaining (queries) or spent/cap (R$) in the Usage Report | ⏳ next |
 | Edit/top-up an existing subscription from the UI | ⏳ next |
 | Payment capture → auto-grant credits/budget | ⏳ [next-steps/017](next-steps/017-paywall-self-serve-provisioning.md) |
 
