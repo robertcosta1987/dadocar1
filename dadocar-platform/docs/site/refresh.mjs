@@ -43,6 +43,7 @@ const main = async () => {
   copied.push(await copy("decisions/0002-web-deploy-aesthetics-standard.md", "0002-web-deploy-aesthetics-standard.md"));
   copied.push(await copy("decisions/0003-doc-update-workflow.md", "0003-doc-update-workflow.md"));
   copied.push(await copy("decisions/0007-webclient-productization.md", "0007-webclient-productization.md"));
+  copied.push(await copy("decisions/0008-api-usage-metering.md", "0008-api-usage-metering.md"));
   copied.push(await copy("decisions/next-steps/README.md", "next-steps-README.md"));
 
   // individual gap items.
