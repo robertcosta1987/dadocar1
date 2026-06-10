@@ -16,14 +16,15 @@ Add a metering + subscription layer on the webclient's Azure SQL, and an admin-o
 2. **`api_products`** — the sellable consult types per API (`api`, `code`, `name`, `unit_price_brl`). Seeded with the 6 CheckTudo products at the Placas360 storefront prices (66 Veículo Total R$44,90; 67 Essencial R$29,90; 13 Decod+Precificador R$19,90; 71 Cadastrais R$9,90; 76 Decod+FIPE R$17,90; 241 Decod V.4 R$12,90).
 3. **`users.subscription_id`** — which customer a user's usage is billed to. **All current regular users** are placed under Moneycar; the **Master/admin is excluded** (it's the operator, not a payer). New users carry no subscription until one is configured.
 4. **`api_usage`** — the ledger. One row per **billable** consult, written by a single `INSERT…SELECT` that snapshots the user's `subscription_id`, the `product_name` and the `unit_price_brl` at the moment of use (so later price/name changes don't rewrite history).
-5. **Count live calls only.** `actions/checktudo.ts` records usage **only on a successful live consult** — cache hits return earlier in the action and are therefore never counted. Recording is best-effort (a metering failure never breaks a consult).
-6. **Admin "Usage Report for APIs"** (`/admin/uso-apis`, admin-only). Aggregates the ledger **API → subscription → product** with quantities, amounts to charge, and first/last timestamps. `usageReport({ subscriptionId })` already accepts a per-customer scope so the same view can later be shown to a paying customer for their own usage.
+5. **Count live and cache, separately.** `actions/checktudo.ts` records every consult with a `source`: **live** (a real API call — billable) or **cache** (served from the SQL cache — recorded for reporting, **never charged**). `api_usage.source` (migration 0010) carries the split; the report's "A cobrar" sums **live only**, and cached usage is shown as a separate count + equivalent (un-charged) value. Recording is best-effort (a metering failure never breaks a consult). *(APIM can't make this distinction — the cache is app-side — so the authoritative split lives here.)*
+6. **Admin "Usage Report for APIs"** (`/admin/uso-apis`, admin-only). Aggregates the ledger **API → subscription → product**, split live vs cache, with amounts to charge and first/last timestamps. `usageReport({ subscriptionId })` already accepts a per-customer scope so the same view can later be shown to a paying customer for their own usage.
+7. **APIM products — one per consult type.** Six published products in API Management — `checktudo-veiculo-total` (66), `-essencial` (67), `-decod-precificador` (13), `-dados-cadastrais` (71), `-decod-fipe` (76), `-decod-v4` (241) — each with a Moneycar subscription (`moneycar-checktudo-*`). One product per type because prices differ. These are the billing/subscription **catalog**; CheckTudo traffic is **not yet routed through APIM**, and even once it is, the live-vs-cache split stays in `api_usage` (APIM can't see the app cache).
 
 ## Consequences
 
 **Enables**: end-to-end count → price → "charge Moneycar R$X" is in place; repeat (cached) lookups are explicitly free; adding KBB/Infocar metering is a one-line `recordUsage` call per action + seeding their `api_products`; the report is already structured for future per-customer self-service views.
 
-**Accepts**: this is still an **app-local** billing model on Azure SQL, not APIM subscriptions/products or the platform `customers` model — when billing moves to APIM, `sub_key` maps to the APIM subscription key. There is **no UI yet to create subscriptions or assign them to users** (done via SQL/migration); new users have `subscription_id = NULL` and their live usage is recorded as "Sem assinatura" until configured. Prices are per-consult retail defaults, editable in `api_products`. No payment capture yet (see paywall next-step).
+**Accepts**: APIM now holds a **product per consult type** + Moneycar subscriptions, but CheckTudo traffic still flows direct to the Function (not through the APIM gateway), so the **counting is app-local** (Azure SQL `api_usage`) — which it must be anyway, since the cache is app-side and APIM can't tell live from cached. Subscriptions exist in two places (APIM products and SQL `subscriptions`) until traffic is routed through APIM and the two are unified (`sub_key` ↔ APIM subscription key). There is **no UI yet to create/assign subscriptions** (done via SQL/migration + `az`); new users have `subscription_id = NULL` until configured. Prices are per-consult retail defaults, editable in `api_products` (APIM has no native price field — price is mirrored in the product description). No payment capture yet (see paywall next-step).
 
 ## Current state
 
@@ -33,8 +34,10 @@ Add a metering + subscription layer on the webclient's Azure SQL, and an admin-o
 | Moneycar subscription seeded (`SUB-MONEYCAR-001`) | ✅ live |
 | 6 CheckTudo products seeded with prices | ✅ live |
 | All current regular users placed under Moneycar (admin excluded) | ✅ live |
-| Usage recorded on live CheckTudo consults only (cache hits not counted) | ✅ live |
-| `/admin/uso-apis` "Usage Report for APIs" (admin-only) | ✅ live |
+| Usage recorded on live (billable) **and** cache (non-billable) consults, split by `source` (migration 0010) | ✅ live |
+| `/admin/uso-apis` "Usage Report for APIs" — live vs cache, admin-only | ✅ live |
+| 6 APIM products (one per consult type) + Moneycar subscriptions | ✅ live |
+| Route CheckTudo traffic through APIM (gateway enforcement) | ⏳ not wired |
 | KBB / Infocar metering | ⏳ not wired (CheckTudo-only by scope) |
 | Admin UI to create subscriptions / assign to users | ⏳ next step |
 | Per-customer self-service usage report (paid users) | ⏳ next step |
