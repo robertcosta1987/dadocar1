@@ -43,6 +43,7 @@ When the state changes. The "Current state" table is the living view. Append a d
 | [0006](0006-checktudo-integration.md) | CheckTudo vehicle-data integration | Active |
 | [0007](0007-webclient-productization.md) | Webclient productization: auth, tenant isolation, Master, recall AI | Active |
 | [0008](0008-api-usage-metering.md) | API usage metering + customer subscriptions (CheckTudo) | Active |
+| [0009](0009-subscription-provisioning-and-limits.md) | Subscription provisioning, consumption limits & forced password change | Active |
 
 ## Next steps
 
