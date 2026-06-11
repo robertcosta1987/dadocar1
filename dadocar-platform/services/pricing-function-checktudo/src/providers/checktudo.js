@@ -49,6 +49,7 @@ const SECRET_NAMES = ["checktudo-username", "checktudo-password"];
 // Selectable vehicle products (querycode → display name). Exposed to the
 // webclient via the function's /api/products route and validated on lookup.
 const PRODUCTS = {
+  65:  "Veículo Total +",
   66:  "Veículo Total",
   67:  "Veículo Essencial",
   13:  "Decodificador e Precificador",
