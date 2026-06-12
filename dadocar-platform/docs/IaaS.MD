@@ -31,7 +31,7 @@ Dadocar is a vehicle-data API platform that resells Brazilian vehicle data (toda
 
 | Layer | Today's role | Future role |
 |---|---|---|
-| Edge / Frontend | **Two Vercel apps**: the legacy test/admin UI (`dadocar1.vercel.app`, `apps/infocar-test`) and the productized **Placas360** customer app (`apps/webclient`) — authenticated (login + invite-gated registration), per-user **tenant isolation**, an enterprise UI, calling the pricing + CheckTudo functions and caching results in **Azure SQL**. See §2.8. | Self-serve sign-up + paywall + automatic per-customer provisioning + CRM (see [next-steps/016](decisions/next-steps/016-crm.md), [017](decisions/next-steps/017-paywall-self-serve-provisioning.md)). |
+| Edge / Frontend | **Three Vercel apps**: (1) the legacy test/admin UI (`dadocar1.vercel.app`, `apps/infocar-test`); (2) the internal **authenticated webclient** (`apps/webclient`) — login + invite-gated registration, per-user **tenant isolation**, enterprise UI (see §2.8); (3) the public **Placas360 storefront** (`placas360.vercel.app`, `apps/webclient_commercial`) — no-login, order-GUID capability model, plans/bundles, Consulta Personalizada, plate OCR, PDF/e-mail/share reports, Lisa WhatsApp bot (see §2.9). All call the pricing + CheckTudo functions and cache results in the **shared Azure SQL** DB. | Self-serve sign-up + paywall + automatic per-customer provisioning + CRM (see [next-steps/016](decisions/next-steps/016-crm.md), [017](decisions/next-steps/017-paywall-self-serve-provisioning.md)). |
 | API gateway | Direct function key. | Azure APIM (Consumption tier already provisioned) with products + subscriptions + rate-limit policies. |
 | Aggregator | Azure Function App fans out to a registry of provider modules; merges into a single `sources[]` response. | Same, plus Cosmos cache reads/writes + Event Hub `query-events` emission for analytics. |
 | Providers / vendors | **Three live**, across three Function Apps: **Infocar** (Codificação FIPE) as a provider module on the enrichment aggregator; **Molicar / KBB** pricing (`dadocar-dev-func-pricing-brs`); **CheckTudo** vehicle data (`dadocar-dev-func-checktudo-brs`). The Placas360 webclient consumes the pricing + CheckTudo functions. | Many more: Denatran, Checagem.tech, B3 scoring, vehicle-history, accident-history, etc. |
@@ -195,6 +195,69 @@ The customer-facing app, Next.js 16 (App Router) on Vercel, talking to the **pri
 | Env vars (Vercel prod + `.env.local`) | `DATABASE_URL` (Azure SQL conn string), `AUTH_SECRET` (session HMAC key), `ANTHROPIC_API_KEY` (recall + Parecer de Compra verdicts), `PRICING_API_APP_ID` / `PRICING_API_KEY`, `CHECKTUDO_API_APP_ID` / `CHECKTUDO_API_KEY`, and for APIM provisioning `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` (SP `dadocar-webclient-apim`) + `APIM_SUBSCRIPTION_ID` / `APIM_RESOURCE_GROUP` / `APIM_SERVICE_NAME`. |
 
 > Note: the webclient's Azure SQL server is a separate resource from the aggregator's Cosmos/Storage data plane in §2.1 — it is the app's own store, not the platform cache. The longer-term plan folds customer/billing/tenant state into the platform's `customers` model (Cosmos) + a CRM; see [next-steps/002](decisions/next-steps/002-customer-model-multi-tenancy.md), [016](decisions/next-steps/016-crm.md), [017](decisions/next-steps/017-paywall-self-serve-provisioning.md).
+
+---
+
+### 2.9 Commercial storefront — Placas360 (`apps/webclient_commercial`)
+
+The **public-facing storefront** at **`placas360.vercel.app`** — Next.js 16 (App Router) on Vercel — where an anonymous visitor buys a vehicle consult by plate. Distinct from the internal/admin webclient in §2.8 (which is login-gated); this one has **no login** for buyers. It **shares the same Azure SQL database** (`carros_ativos_db`) and the same **CheckTudo Function** as §2.8.
+
+| Aspect | Detail |
+|---|---|
+| Vercel project / repo | `placas360` (team `robertcostait-6892's projects`), repo `robertcosta1987/placas360`, prod branch `main`, root `apps/webclient_commercial`. Deploy via `vercel --prod`. |
+| Auth model | **No login.** Payment is simulated (Stripe pending). The **order GUID** (`commercial_orders.id`, 122-bit `NEWID()`) is the access capability — same model as a signed share link; whoever has `/consulta/<id>` sees that report. Server actions that touch an order are scoped to its id (e.g. e-mail goes only to the order's own address — no open relay). |
+| Consult catalog | Full **CheckTudo price sheet = 51 products** (`src/lib/checktudo/catalog.ts`), each priced at vendor base (tier "R$ 500") **+ 60% markup**. The function's allowlist carries all of them (§2.1 CheckTudo). Seeded into `api_products` via `npm run seed:catalog`. |
+| Plans (combos) | Three storefront plans sold as tiles: **Total Plus** (code 65, R$60), **Veículo Essencial** (67, R$40), **Decodificador v4** (241, R$15). |
+| Consulta Personalizada | À-la-carte tile: customer checkboxes individual queries; **main 13** shown by default, "Ver todas (51)" reveals the rest. Each runs and is charged individually. |
+| Bundles | Pre-selected combos for private-party buyers at **−10% (floored to whole reais)**: *Compra de Particular Completa* R$49, *Tá limpo?* R$20, *Sem surpresa* R$34, *Vale a compra?* R$6 (`src/lib/commercial/bundles.ts`). The slug pins the codes + discounted price **server-side** (untamperable). |
+| Plate OCR ("Foto") | A camera/file button reads the plate from a photo: client resizes to JPEG → server action OCRs via **Azure AI Vision Image Analysis 4.0** (resource `dadocar-dev-vision-eus`, **eastus**) → a BR-plate parser (`src/lib/ocr/plate.ts`) fills the field. Env `AZURE_VISION_ENDPOINT` / `AZURE_VISION_KEY`. |
+| Passkey gate (temporary) | Every consult run is gated by an **internal passkey**, verified **server-side before any vendor call** (fail-safe; blocks if env unset; constant-time compare). Env `CONSULT_PASSKEY`. Remembered per browser session. Keeps random visitors from triggering paid consults during testing. |
+| Report | Graphical labeled-grid render of each query (`StructuredData`), plus **Baixar PDF** (Blob → print), **Enviar por e-mail** (Azure Communication Services Email, resource `dadocar-dev-acs-brs`, brazilsouth; sender `DoNotReply@…azurecomm.net`, custom domain `email.placas360.com` pending SPF), and **Compartilhar** (WhatsApp / Facebook share of the report link). Placas360 logo on screen + PDF + e-mail. |
+| WhatsApp bot (Lisa) | Sales chatbot on WhatsApp via **WaSender** (`/api/whatsapp/webhook`, GPT-5 Nano) + a website widget — recommends a plan, sends the checkout link, masked "Falar com Suporte" handoff, ≤400-char replies, human-like pacing. Per-contact history in `whatsapp_messages`. Number **+55 13 99138-0212**. Env `WASENDER_API_KEY` / `WASENDER_WEBHOOK_SECRET` / `OPENAI_API_KEY`. |
+| Admin (logs) | `/admin/logs` — login-gated (`admin_users`, scrypt + HMAC cookie, only `admin@3ahub.com.br`). Expandable per-consult cards with **customer, IP + geo, OS/device/browser, screen/viewport, and a step-by-step end-to-end trace** (`consult_logs`). Env `ADMIN_SESSION_SECRET`. |
+| Env vars (Vercel prod) | `DATABASE_URL`, `CHECKTUDO_API_APP_ID`/`_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`/`OPENAI_MODEL`, `WASENDER_API_KEY`/`WASENDER_WEBHOOK_SECRET`, `NEXT_PUBLIC_WHATSAPP_NUMBER`, `ACS_CONNECTION_STRING`/`ACS_SENDER`, `AZURE_VISION_ENDPOINT`/`AZURE_VISION_KEY`, `ADMIN_SESSION_SECRET`, `CONSULT_PASSKEY`. |
+
+#### 2.9.1 Database — tables (prod vs cache) and how they interact
+
+One shared Azure SQL DB (`carros_ativos_db` on `dadocar-dev-sql-webclient-dv02-brs`), **15 tables**. They split into **operational** state and **cache**:
+
+| Group | Tables | Role |
+|---|---|---|
+| **Cache** (3 — one per provider) | **`checktudo_consultas`** · `kbb_consultas` · `infocar_consultas` | Provider result caches, one row per consult, **kept indefinitely**. Placas360 uses **`checktudo_consultas`** (19 cols): full `data` payload + extracted brand/model/year/chassi + recall/parecer verdicts. |
+| **Orders / storefront** | `commercial_orders` · `consult_logs` · `admin_users` | The buyer's order (+ selected `codes`, amount), the diagnostic logs, the admin login. |
+| **Metering / billing** | `api_products` (52) · `api_usage` · `subscriptions` · `subscription_quotas` · `customers` | Sellable products + per-consult ledger + customer subscriptions (shared with §2.8). |
+| **Internal webclient** | `users` · `invite_codes` · `carros_ativos` · `kbb_consultas` · `infocar_consultas` | §2.8's auth/CRM/stock + the other two provider caches. |
+| **WhatsApp** | `whatsapp_messages` | Lisa's per-contact history. |
+
+Interaction per consult: `commercial_orders` (the purchase) → run reads/writes **`checktudo_consultas`** (cache) → writes **`api_usage`** (charge ledger, `source` live/cache) → writes **`consult_logs`** (diagnostics). `api_products` supplies the product name/price for the ledger.
+
+#### 2.9.2 How the cache works — is there one cache, and do big consults cover small ones?
+
+- **There is one cache table per data provider.** For CheckTudo (everything Placas360 sells) that's the single table **`checktudo_consultas`**.
+- The cache key is **`(placa, product_code)`**. Lookup is `findFreshByPlaca(placa, code, ownerId)`. The commercial flow reads **cross-tenant** (`ownerId = null`), so it reuses **any** prior consult of the same plate+code (incl. legacy `owner_id = NULL` rows) and **never re-bills the vendor** for an exact repeat. Cache hits still write an `api_usage` row tagged `source = cache` (counted, **not charged**).
+- **Each querycode is cached independently — combos are NOT decomposed into their sub-consults.** Example: run **65 (Veículo Total +)**, then **5 (Renajud)**:
+  - 65 stores a row at `product_code = 65` (its full combo payload, which *does* contain Renajud data inside).
+  - 5 looks up `product_code = 5` — **no such row exists** — so it runs a **new, billable** live query for 5, even though 65's response already held the Renajud data.
+  - The system has **no map of "code 65 covers codes 3/4/5/…"**, so it does **not** know that 5 is contained in 65. Same plate + same code = cached; a different code = new query.
+- **Optimization opportunity (not built):** a "combo → covered sub-codes" table could let a later atomic consult be served from the parent combo's cached `data` (saving a vendor call). Today every distinct `product_code` is its own cache entry and its own potential charge.
+
+#### 2.9.3 Cache + consult flow (Mermaid)
+
+```mermaid
+flowchart LR
+  B[Buyer<br/>placas360.vercel.app] -->|order GUID| O[(commercial_orders)]
+  B -->|passkey + run| A[runCustomConsult / runConsult<br/>server action]
+  A -->|"findFreshByPlaca(placa, code)"| C[(checktudo_consultas<br/>CACHE · key placa+code)]
+  C -->|hit| A
+  C -->|miss| F[CheckTudo Function<br/>dadocar-dev-func-checktudo-brs]
+  F -->|querycode| V[(CheckTudo vendor)]
+  F -->|store| C
+  A -->|"source=live/cache"| U[(api_usage<br/>charge ledger)]
+  A -->|trace + IP/geo/device| L[(consult_logs)]
+  A -->|reads name/price| P[(api_products · 52)]
+```
+
+> Key takeaway for pricing: a customer who buys 65 and later buys 5 is **billed twice** at the vendor — the platform does not yet recognize 5 as contained in 65.
 
 ---
 
