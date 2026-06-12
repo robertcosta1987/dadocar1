@@ -38,10 +38,14 @@ const AUTH_BASE     = "https://api.checktudo.com.br";
 const API_BASE      = "https://api.checktudo.com.br/api";
 const FETCH_TIMEOUT = 20 * 1000;
 
-// Total time we will wait for a CheckTudo result to materialise via polling.
-// Veículo Total observed at ~27s, so 28s was too tight; 55s stays well within
-// the Azure load-balancer's 230s sync HTTP limit while keeping the page snappy.
-const POLL_BUDGET_MS   = 55 * 1000;
+// Time we wait for a CheckTudo result per call. This function app severs
+// synchronous HTTP at ~60s (NOT the 230s the docs imply), so a single call
+// cannot poll longer than that. We stay safely under it at 45s; slow products
+// (241 Decod V.4, 2090 Dados Básicos) that need more are handled by the caller
+// RE-CALLING — submitOrder then returns 206 (duplicate) and we resume polling
+// the SAME queryId via findExistingQueryId (no re-charge). The webclient loops
+// these short calls within its 300s maxDuration until the result lands.
+const POLL_BUDGET_MS   = 45 * 1000;
 const POLL_INTERVAL_MS = 1500;
 
 const SECRET_NAMES = ["checktudo-username", "checktudo-password"];
@@ -389,6 +393,33 @@ async function lookupByVin(vin, querycode = DEFAULT_PRODUCT) {
   return runQuery(querycode, { chassi: vin });
 }
 
+/**
+ * Poll an EXISTING order by queryId — never submits a new order, so it is never
+ * billed. Used by the webclient to resume a query that returned poll_timeout,
+ * avoiding the re-charge that re-submitting would cause (the vendor's 206 dedup
+ * does NOT cover still-pending orders). Returns the same shape as runQuery.
+ */
+async function pollResultById(queryId) {
+  const t0 = Date.now();
+  let token;
+  try { token = await getToken(); }
+  catch (err) {
+    return { ok: false, error: "auth_failed", message: err.message, upstream_status: err.upstreamStatus ?? null, latency_ms: Date.now() - t0 };
+  }
+  const result = await pollUntilReady(queryId, token);
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: result.pending ? "poll_timeout" : `result_${result.status}`,
+      message: result.message || "CheckTudo result fetch failed",
+      upstream_status: result.status,
+      queryId,
+      latency_ms: Date.now() - t0,
+    };
+  }
+  return { ok: true, data: result.data, refClass: result.refClass, queryId, upstream_status: result.status, latency_ms: Date.now() - t0, poll_attempts: result.attempts };
+}
+
 module.exports = {
   id:          "checktudo",
   displayName: "CheckTudo · Dados Veiculares",
@@ -399,4 +430,5 @@ module.exports = {
   isReady,
   lookupByPlate,
   lookupByVin,
+  pollResultById,
 };

@@ -76,6 +76,10 @@ function envelope(code, result) {
       error: result.error || "upstream_failure",
       message: result.message || "Consulta CheckTudo falhou.",
       upstream_status: result.upstream_status ?? null,
+      // Surface the queryId on poll_timeout so the caller can RESUME polling
+      // this exact order (via /checktudo/result/{queryId}) instead of
+      // re-submitting and being billed again.
+      queryId: result.queryId ?? null,
       latency_ms: result.latency_ms ?? null,
     },
   };
@@ -138,6 +142,27 @@ async function vinHandler(request, context) {
   }
 }
 
+// Resume polling an existing order by queryId. Never submits a new order, so it
+// is NEVER billed — the webclient calls this to recover a query that returned
+// poll_timeout, looping short calls until the result lands.
+async function resultHandler(request, context) {
+  const queryId = String(request.params.queryId || "").trim();
+  if (!/^[A-Za-z0-9]{8,64}$/.test(queryId)) {
+    return { status: 400, jsonBody: { error: "invalid_query_id", message: "queryId inválido." } };
+  }
+  const t0 = Date.now();
+  try {
+    const result = await checktudo.pollResultById(queryId);
+    context.log(`checktudo result queryId=${queryId.slice(0, 6)}*** ok=${result.ok} latency_ms=${Date.now() - t0}`);
+    // Product code is unknown here; the envelope's product is cosmetic for the
+    // caller (which already knows the code), so pass the default name slot.
+    return envelope(result.product?.code ?? 0, result);
+  } catch (err) {
+    context.error("checktudo result fetch unexpected error", err);
+    return { status: 500, jsonBody: { error: "internal", message: err.message } };
+  }
+}
+
 async function productsHandler() {
   const ready = await checktudo.isReady();
   return {
@@ -170,6 +195,13 @@ app.http("checktudoByVin", {
   methods:   ["GET"],
   authLevel: "function",
   handler:   vinHandler,
+});
+
+app.http("checktudoResult", {
+  route:     "checktudo/result/{queryId}",
+  methods:   ["GET"],
+  authLevel: "function",
+  handler:   resultHandler,
 });
 
 app.http("products", {
