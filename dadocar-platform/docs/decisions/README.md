@@ -45,6 +45,7 @@ When the state changes. The "Current state" table is the living view. Append a d
 | [0008](0008-api-usage-metering.md) | API usage metering + customer subscriptions (CheckTudo) | Active |
 | [0009](0009-subscription-provisioning-and-limits.md) | Subscription provisioning, consumption limits & forced password change | Active |
 | [0010](0010-commercial-storefront.md) | Public commercial storefront (Placas360, `apps/webclient_commercial`) — no-login orders, plans/bundles, OCR, reports, cache mechanics | Active |
+| [0011](0011-programmatic-fipe-api.md) | Programmatic FIPE API (`GET /api/v1/fipe/plate/{placa}`, querycode 202) — per-customer API key, unified `api_usage` ledger + plan caps | Active |
 
 ## Next steps
 
