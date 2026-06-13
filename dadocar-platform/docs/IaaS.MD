@@ -188,7 +188,7 @@ The customer-facing app, Next.js 16 (App Router) on Vercel, talking to the **pri
 | Parecer de Compra (AI) | On each CheckTudo consult, the decision signals (risk index, recall verdict, sinistro, roubo/furto, leilão, gravame/restrições, situação, nº donos, KM/rollback, débitos, FIPE 12-month trend) are distilled into a compact object (`lib/checktudo/parecer.ts`) and sent to Claude (`claude-haiku-4-5`) for a buy verdict — **COMPRAR / ATENÇÃO / EVITAR** + a one-line reason. Persisted (`parecer_veredito` / `parecer_motivo`), shown as a banner at the top of the report and a colored badge on each history card. `lib/checktudo/parecerVerdict.ts`. |
 | FIPE price chart | Hovering "FIPE / Preço" shows an inline 12-month price-variation SVG chart, rendered directly from `informacoesFipe.historicoPreco` (no API call). |
 | Cache policy | KBB + CheckTudo + Infocar results are cached **indefinitely** (kept until cleared manually) — no TTL expiry. |
-| API metering & subscriptions | A customer (`subscriptions`, e.g. **Moneycar** `SUB-MONEYCAR-001`) is linked to users via `users.subscription_id`; sellable consult types + prices live in `api_products`. Each CheckTudo consult writes one `api_usage` row tagged `source` **live** (billable) or **cache** (counted, not charged). All current regular users are under Moneycar; the admin/Master is excluded; new users carry no subscription until configured. **APIM** also holds one **product per consult type** (`checktudo-veiculo-total`/`-essencial`/`-decod-precificador`/`-dados-cadastrais`/`-decod-fipe`/`-decod-v4`) with Moneycar subscriptions — the billing catalog; CheckTudo isn't routed through the APIM gateway yet, so counting stays app-side. See [decisions/0008](decisions/0008-api-usage-metering.md). |
+| API metering & subscriptions | A customer (`subscriptions`, e.g. **Moneycar** `SUB-MONEYCAR-001`) is linked to users via `users.subscription_id`; sellable consult types + prices live in `api_products`. Each CheckTudo consult writes one `api_usage` row tagged `source` **live** (billable) or **cache** (counted, not charged). All current regular users are under Moneycar; the admin/Master is excluded; new users carry no subscription until configured. **APIM** also holds one **product per consult type** (`checktudo-veiculo-total`/`-essencial`/`-decod-precificador`/`-dados-cadastrais`/`-decod-fipe`/`-decod-v4`) with Moneycar subscriptions — the billing catalog; CheckTudo isn't routed through the APIM gateway yet, so counting stays app-side. This same ledger now also bills the **programmatic FIPE API** (per-customer key, querycode 202) — see §2.10 and [decisions/0011](decisions/0011-programmatic-fipe-api.md). See [decisions/0008](decisions/0008-api-usage-metering.md). |
 | Nav | Tabs: **Infocar** (`/infocar`), **Tabela KBB** (`/precos`) and **CheckTudo** (`/checktudo`), each with inline saved-search history, plus admin-only **Adicionar Assinatura** (`/admin/assinaturas`), **Convites** and **Usage Report** (`/admin/uso-apis`). Carros Ativos / Buscar / Relatórios tabs and the "+ Adicionar Veículo" button are hidden. |
 | Provisioning + forced password change | Admin "Adicionar Assinatura" creates a customer (CRM) + subscription (plan: consult credits or R$ budget) + login user + product entitlements, returning a one-time temp password. New users carry `must_change_password`; `middleware.ts` confines them to `/trocar-senha` until they set a new password. See [decisions/0009](decisions/0009-subscription-provisioning-and-limits.md). |
 | Usage report (admin) | `/admin/uso-apis` "Usage Report for APIs", visible only to the Master/admin. Aggregates `api_usage` **API → subscription → product** with quantities, amounts to charge, and timestamps; `usageReport({ subscriptionId })` supports a future per-customer view. |
@@ -219,13 +219,13 @@ The **public-facing storefront** at **`placas360.vercel.app`** — Next.js 16 (A
 
 #### 2.9.1 Database — tables (prod vs cache) and how they interact
 
-One shared Azure SQL DB (`carros_ativos_db` on `dadocar-dev-sql-webclient-dv02-brs`), **15 tables**. They split into **operational** state and **cache**:
+One shared Azure SQL DB (`carros_ativos_db` on `dadocar-dev-sql-webclient-dv02-brs`), **16 tables**. They split into **operational** state and **cache**:
 
 | Group | Tables | Role |
 |---|---|---|
 | **Cache** (3 — one per provider) | **`checktudo_consultas`** · `kbb_consultas` · `infocar_consultas` | Provider result caches, one row per consult, **kept indefinitely**. Placas360 uses **`checktudo_consultas`** (19 cols): full `data` payload + extracted brand/model/year/chassi + recall/parecer verdicts. |
 | **Orders / storefront** | `commercial_orders` · `consult_logs` · `admin_users` | The buyer's order (+ selected `codes`, amount), the diagnostic logs, the admin login. |
-| **Metering / billing** | `api_products` (52) · `api_usage` · `subscriptions` · `subscription_quotas` · `customers` | Sellable products + per-consult ledger + customer subscriptions (shared with §2.8). |
+| **Metering / billing** | `api_products` (52) · `api_usage` · `subscriptions` · `subscription_quotas` · `customers` · `api_request_logs` | Sellable products + per-consult ledger + customer subscriptions (shared with §2.8). `subscriptions` carries `api_access` (gate for the programmatic API) and `users` carries `api_key_hash`/`prefix` — see §2.10. `api_request_logs` is the per-call audit log for the programmatic API. |
 | **Internal webclient** | `users` · `invite_codes` · `carros_ativos` · `kbb_consultas` · `infocar_consultas` | §2.8's auth/CRM/stock + the other two provider caches. |
 | **WhatsApp** | `whatsapp_messages` | Lisa's per-contact history. |
 
@@ -258,6 +258,46 @@ flowchart LR
 ```
 
 > Key takeaway for pricing: a customer who buys 65 and later buys 5 is **billed twice** at the vendor — the platform does not yet recognize 5 as contained in 65.
+
+---
+
+### 2.10 Programmatic API — metered FIPE by plate (Moneycar / Profitcar)
+
+A customer's app sends a license plate and gets back the **FIPE current price, FIPE code and 12-month history** (CheckTudo querycode **202**, "Decodificador e Precificador"). It lives **inside the internal webclient** (`apps/webclient`, route `src/app/api/v1/fipe/plate/[placa]/route.ts`) and reuses the §2.8 metering, so calls are accounted, monitored and charged through the same ledger as the UI — **no APIM dependency**. First built in [decisions/0011](decisions/0011-programmatic-fipe-api.md).
+
+| Aspect | Detail |
+|---|---|
+| Endpoint | `GET /api/v1/fipe/plate/{placa}` on the webclient host (**www.placas360.com.br**, Vercel project `webclient-fipe`). Node runtime, `maxDuration=60`. Exempt from the auth-redirect middleware (does its own key auth). |
+| Auth | Per-customer **API key** (`p360_…`, 40-hex) as `Authorization: Bearer <key>` (or `x-api-key`). Stored only as a **SHA-256 hash** on `users.api_key_hash` (+ `api_key_prefix`); plaintext shown once at issue. The key is bound to a `user` → `subscription`. |
+| Access gate | The route requires the caller's `subscriptions.api_access = 1`. **Only `Moneycar_Profitcar_API_FIPE` is enabled** — every other account stays web-only even if a key were issued to it (403 otherwise). |
+| Response | `{ ok, placa, source: live\|cache, consultaId, fipe: { marca, modelo, anoModelo, codigoFipe, valorAtual (R$, inteiro), historico:[{mes,ano,valor}] } }`. Errors: 401 (key), 403 (não habilitado), 400 (placa), 402 (limite do plano), 404 (placa), 502 (provedor). |
+| Metering / billing | Per-tenant cache read (`checktudo_consultas`, the customer's own prior lookup → recorded `source=cache`, **not charged**); otherwise `reserveConsult` against the plan → live CheckTudo 202 → **refund on failure** → cache insert → `recordUsage(source=live)`. **Only completed live consults are charged.** Visible in `/admin/uso-apis`. |
+| Audit log | Every call (incl. rejected) writes `api_request_logs`: ip, geo (country/city), user-agent, placa, outcome (`ok`/`error`/`auth_failed`), `source`, `charged`, error code, http status, duration, key prefix, consultaId. The log write is **awaited before responding** (serverless drops fire-and-forget). |
+| Issuance | Operator script `scripts/issue-api-key.ts <email> [price]`, full provisioning `scripts/create-api-customer.ts`, and admin UI ("Acesso por API" on `/admin/assinaturas`). Re-issuing rotates. |
+
+**The live customer — `Moneycar_Profitcar_API_FIPE`:**
+
+| Piece | Value |
+|---|---|
+| Subscription | `Moneycar_Profitcar_API_FIPE` (`sub_key` `SUB-MONEYCAR-3C9F`), plan **`ondemand`** (no cap → billed end of cycle), `api_access = 1`. |
+| Identity / key | user `profitcar-api@moneycar.com.br` (login disabled), key prefix `p360_c67bd43` (hash stored). |
+| Product | `api_products` (`checktudo`, **202**) "Decodificador e Precificador (FIPE)" at **R$ 0,51**/live consult, contracted via `subscription_quotas`. |
+
+> **Where it runs:** the **API app is on Vercel** (`webclient-fipe` → www.placas360.com.br). **Azure** (`rg-dadocar-dev-brs`, Brazil South) hosts the data plane and vendor integration: **Azure SQL** `dadocar-dev-sql-webclient-dv02-brs` / DB `carros_ativos_db` (subscriptions, users, api_products, subscription_quotas, api_usage, **api_request_logs**, cache `checktudo_consultas`); **Function App** `dadocar-dev-func-checktudo-brs` (Linux Y1, the CheckTudo login→order→poll); **Key Vault** `dadocardevkvbrso3uo` (vendor creds); **App Insights** `dadocar-dev-appi-brs`. The CheckTudo vendor API (`api.checktudo.com.br`) is the FIPE data source. Azure **APIM exists but is not in this path** — auth/metering/charging are app-side + Azure SQL.
+
+```mermaid
+flowchart LR
+  CA[Customer app<br/>Profitcar] -->|"Bearer p360_…"| R[Vercel route<br/>/api/v1/fipe/plate/:placa<br/>webclient-fipe]
+  R -->|"hash → user → subscription"| DB[(Azure SQL<br/>users · subscriptions)]
+  R -->|"gate: api_access=1"| DB
+  R -->|"cache (placa+202)"| C[(checktudo_consultas)]
+  C -->|hit · source=cache · não cobra| R
+  C -->|miss| F[CheckTudo Function<br/>dadocar-dev-func-checktudo-brs · Azure]
+  F -->|creds via Key Vault| V[(CheckTudo vendor<br/>api.checktudo.com.br)]
+  F -->|store| C
+  R -->|"reserve/record · source=live · cobra R$0,51"| U[(api_usage)]
+  R -->|"ip/geo/outcome/charged"| AL[(api_request_logs)]
+```
 
 ---
 
