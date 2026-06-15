@@ -36,10 +36,49 @@ function insights(agg) {
     const eh = r.meters.filter((m) => /event hubs|service bus/i.test(m.category));
     if (eh.length) {
       const cap = eh.find((m) => /throughput unit/i.test(m.meter));
-      const traffic = eh.filter((m) => /ingress|messaging operations|capture/i.test(m.meter)).reduce((s, m) => s + m.qty, 0);
-      if (cap && cap.cost > 0 && traffic === 0) out.push(`${r.resourceName}: paga ${money(cap.cost, cur)} de capacidade (Throughput Unit) com tráfego ZERO no mês — recurso ocioso, candidato a remoção.`);
+      const trafficCost = eh.filter((m) => /ingress|messaging operations|capture|egress/i.test(m.meter)).reduce((s, m) => s + m.cost, 0);
+      if (cap && cap.cost > 0 && trafficCost < 0.05) out.push(`${r.resourceName}: paga ${money(cap.cost, cur)} de capacidade (Throughput Unit) com tráfego praticamente nulo no mês — recurso ocioso, candidato a remoção.`);
     }
   }
+  return out;
+}
+
+/** Actionable cost-saving recommendations from the month's data. */
+function savings(agg) {
+  const { resources, total, cur } = agg;
+  const tips = [];
+  for (const r of resources) {
+    if (r.cost <= 0) continue;
+    const cats = r.meters.map((m) => m.category.toLowerCase());
+    const some = (re) => cats.some((c) => re.test(c));
+
+    // Event Hubs / Service Bus idle: capacity charged with zero traffic.
+    const ehCap = r.meters.find((m) => /throughput unit/i.test(m.meter) && m.cost > 0);
+    const ehTrafficCost = r.meters.filter((m) => /ingress|messaging operations|capture|egress/i.test(m.meter)).reduce((s, m) => s + m.cost, 0);
+    if (ehCap && ehTrafficCost < 0.05) tips.push(`Event Hubs ${r.resourceName}: paga ${money(ehCap.cost, cur)} de capacidade com tráfego praticamente nulo no mês — exclua ou pause o namespace (economia de ~${money(r.cost, cur)}/mês).`);
+
+    // SQL Database: split compute vs storage.
+    if (some(/sql database/i)) {
+      const vcore = r.meters.find((m) => /vcore/i.test(m.meter));
+      const stored = r.meters.find((m) => /data stored/i.test(m.meter));
+      if (vcore && vcore.cost >= r.cost * 0.5) tips.push(`SQL ${r.resourceName}: ${money(vcore.cost, cur)} em computação (vCore). Use serverless com auto-pause mais agressivo e reduza o máximo de vCores; em ambiente de dev/teste, pause fora do horário de uso.`);
+      if (stored && stored.cost >= 2) tips.push(`SQL ${r.resourceName}: ${money(stored.cost, cur)} de armazenamento (${round2(stored.qty)} GB) — limpe dados antigos e ajuste a retenção para reduzir.`);
+    }
+    // Storage accounts: lifecycle/tiering.
+    if (some(/storage/i) && r.cost >= 1) tips.push(`Storage ${r.resourceName}: ${money(r.cost, cur)} — aplique regras de ciclo de vida (Hot → Cool/Archive) e remova blobs antigos.`);
+    // Cosmos DB: autoscale/serverless.
+    if (some(/cosmos/i) && r.cost >= 1) tips.push(`Cosmos DB ${r.resourceName}: ${money(r.cost, cur)} — avalie autoscale ou serverless e reduza o RU/s provisionado.`);
+    // API Management: Consumption tier for low volume.
+    if (some(/api management/i) && r.cost >= 1) tips.push(`API Management ${r.resourceName}: ${money(r.cost, cur)} — com volume baixo, migre para o tier Consumption (paga por chamada).`);
+    // Dedicated compute plans (App Service / Functions Premium).
+    if (some(/app service|premium plan|functions premium/i) && r.cost >= 1) tips.push(`${r.resourceName}: ${money(r.cost, cur)} em plano de compute dedicado — se ocioso, use plano Consumption (Y1) ou reduza o SKU.`);
+  }
+  // Concentration: one resource dominates.
+  const paid = resources.filter((r) => r.cost > 0);
+  if (paid[0] && total && paid[0].cost / total >= 0.6) tips.push(`${Math.round((paid[0].cost / total) * 100)}% do custo está em ${paid[0].resourceName} — priorize a otimização desse recurso primeiro.`);
+  // De-dup; fall back to a positive note.
+  const out = [...new Set(tips)];
+  if (!out.length) out.push("Custos sob controle: nenhum desperdício evidente neste mês. Continue de olho em recursos ociosos e no crescimento do armazenamento.");
   return out;
 }
 
@@ -57,6 +96,7 @@ function meterRowsHtml(agg) {
 /** Full standalone HTML page for the static website. */
 function pageHtml(agg, monthLabel, generatedIso) {
   const ins = insights(agg);
+  const tips = savings(agg);
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Custo Azure — ${esc(monthLabel)}</title>
 <style>
@@ -87,6 +127,7 @@ ${meterRowsHtml(agg)}
 </tbody></table>
 
 ${ins.length ? `<div class="ins"><strong>Leitura rápida</strong><ul>${ins.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>` : ""}
+${tips.length ? `<div class="ins" style="background:#eefaf0;border-color:#bfe6c8"><strong>💡 Sugestões de economia</strong><ul>${tips.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>` : ""}
 <div class="foot">Gerado automaticamente em ${esc(generatedIso)} · Placas360 / ARX · Azure Cost Management</div>
 </div></body></html>`;
 }
@@ -94,6 +135,7 @@ ${ins.length ? `<div class="ins"><strong>Leitura rápida</strong><ul>${ins.map((
 /** Compact email HTML body. */
 function emailHtml(agg, monthLabel) {
   const ins = insights(agg);
+  const tips = savings(agg);
   const rows = agg.resources.map((r) => `<tr><td style="padding:4px 8px;border-bottom:1px solid #eee">${esc(r.resourceName)}</td><td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">${money(r.cost, agg.cur)}</td></tr>`).join("");
   const meterBlocks = agg.resources.filter((r) => r.cost > 0).map((r) =>
     `<p style="margin:10px 0 2px"><strong>${esc(r.resourceName)}</strong> — ${money(r.cost, agg.cur)}</p>` +
@@ -107,6 +149,7 @@ function emailHtml(agg, monthLabel) {
 <h3 style="font-size:15px;margin-top:18px">2) Detalhamento por medição (meter)</h3>
 ${meterBlocks}
 ${ins.length ? `<div style="background:#fff7f0;border:1px solid #ffd9b3;border-radius:10px;padding:12px 14px;margin-top:16px"><strong>Leitura rápida</strong><ul>${ins.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>` : ""}
+${tips.length ? `<div style="background:#eefaf0;border:1px solid #bfe6c8;border-radius:10px;padding:12px 14px;margin-top:12px"><strong>💡 Sugestões de economia</strong><ul>${tips.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>` : ""}
 <p style="color:#9aa3b2;font-size:12px;margin-top:18px">Relatório gerado automaticamente · Placas360 / ARX · Azure Cost Management.</p>
 </div>`;
 }
@@ -129,6 +172,8 @@ function textReport(agg, monthLabel, generatedIso) {
   }
   const ins = insights(agg);
   if (ins.length) { L.push(""); L.push("== LEITURA RÁPIDA =="); for (const i of ins) L.push(`  * ${i}`); }
+  const tips = savings(agg);
+  if (tips.length) { L.push(""); L.push("== SUGESTÕES DE ECONOMIA =="); for (const i of tips) L.push(`  * ${i}`); }
   return L.join("\n");
 }
 

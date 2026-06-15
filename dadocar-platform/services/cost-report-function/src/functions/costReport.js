@@ -37,7 +37,7 @@ async function uploadText(container, name, content, contentType) {
   });
 }
 
-async function run(month, log) {
+async function run(month, log, opts = {}) {
   const c = cfg();
   if (!c.storageConn) throw new Error("REPORTS_STORAGE_CONNECTION not set");
   const { id, labelEn, from, to } = monthRange(month);
@@ -67,7 +67,9 @@ async function run(month, log) {
 
   // Email the stakeholders.
   let emailStatus = "skipped (ACS not configured)";
-  if (c.acsConn && c.acsSender && c.recipients.length) {
+  if (opts.skipEmail) {
+    emailStatus = "skipped (noemail)";
+  } else if (c.acsConn && c.acsSender && c.recipients.length) {
     const client = new EmailClient(c.acsConn);
     const html = pageUrl ? `${body}<p style="font-size:13px"><a href="${pageUrl}">Ver relatório completo (página)</a></p>` : body;
     const poller = await client.beginSend({
@@ -96,7 +98,8 @@ app.http("costReportHttp", {
   handler: async (req, ctx) => {
     try {
       const month = req.query.get("month") || undefined;
-      const summary = await run(month, ctx);
+      const skipEmail = ["1", "true", "yes"].includes((req.query.get("noemail") || "").toLowerCase());
+      const summary = await run(month, ctx, { skipEmail });
       return { jsonBody: { ok: true, ...summary } };
     } catch (e) {
       ctx.error(e);
