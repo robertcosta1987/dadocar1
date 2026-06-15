@@ -1,0 +1,14 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "<reports storage connection string>",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "COST_SUBSCRIPTION_ID": "587a98de-d3a2-417d-9dbf-33459f464a6c",
+    "COST_RESOURCE_GROUP": "rg-dadocar-dev-brs",
+    "REPORTS_STORAGE_CONNECTION": "<reports storage connection string>",
+    "REPORTS_WEB_ENDPOINT": "https://<acct>.z*.web.core.windows.net",
+    "ACS_CONNECTION_STRING": "<acs connection string>",
+    "ACS_SENDER": "DoNotReply@1a6b5336-9248-482e-a7f5-dbe5cafe4cd9.azurecomm.net",
+    "REPORT_RECIPIENTS": "rcosta1987@icloud.com,suporte@moneycar.com.br,suporte@profitcar.com.br"
+  }
+}
