@@ -10,8 +10,8 @@ Uses the verified Chat Completions audio schema:
 import base64
 import logging
 import httpx
-from config import (OPENAI_API_KEY, OPENAI_AUDIO_MODEL, OPENAI_TEXT_MODEL,
-                    OPENAI_VOICE, SYSTEM_PROMPT)
+from config import (FIRST_TURN_INSTRUCTION, OPENAI_API_KEY, OPENAI_AUDIO_MODEL,
+                    OPENAI_TEXT_MODEL, OPENAI_VOICE, SYSTEM_PROMPT)
 
 log = logging.getLogger("lisa.brain")
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
@@ -21,10 +21,18 @@ def _headers() -> dict:
     return {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
 
 
-async def respond_to_audio(history: list[dict], input_mp3: bytes) -> tuple[bytes, str]:
+def _system(first: bool) -> list[dict]:
+    """Base persona + (on the first turn) the greet/can-receive-audio instruction."""
+    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if first:
+        msgs.append({"role": "system", "content": FIRST_TURN_INSTRUCTION})
+    return msgs
+
+
+async def respond_to_audio(history: list[dict], input_mp3: bytes, first: bool = False) -> tuple[bytes, str]:
     """Speech-to-speech: returns (reply_mp3_bytes, reply_transcript)."""
     b64 = base64.b64encode(input_mp3).decode("ascii")
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}, *history,
+    messages = [*_system(first), *history,
                 {"role": "user", "content": [{"type": "input_audio",
                                               "input_audio": {"data": b64, "format": "mp3"}}]}]
     payload = {
@@ -46,9 +54,9 @@ async def respond_to_audio(history: list[dict], input_mp3: bytes) -> tuple[bytes
     return base64.b64decode(data), transcript
 
 
-async def respond_to_text(history: list[dict], text: str) -> str:
+async def respond_to_text(history: list[dict], text: str, first: bool = False) -> str:
     """Text reply (typed messages) using the same model as the web bot."""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}, *history, {"role": "user", "content": text}]
+    messages = [*_system(first), *history, {"role": "user", "content": text}]
     payload = {"model": OPENAI_TEXT_MODEL, "reasoning_effort": "minimal",
                "max_completion_tokens": 800, "messages": messages}
     async with httpx.AsyncClient(timeout=60) as c:

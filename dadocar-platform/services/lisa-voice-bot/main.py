@@ -88,7 +88,9 @@ async def _handle(event: dict, info: dict) -> None:
     # Reply to the FULL original JID (WaSender accepts JIDs). Stripping to digits
     # breaks @lid senders (privacy IDs that aren't phone numbers).
     to = info["remote_jid"]
-    log.info("inbound id=%s audio=%s text=%s", _mask(info["remote_jid"]), bool(info["audio"]), bool(info["text"]))
+    # First contact = no stored history yet → greet + mention she accepts audio.
+    first = not history.get(info["remote_jid"])
+    log.info("inbound id=%s audio=%s text=%s first=%s", _mask(info["remote_jid"]), bool(info["audio"]), bool(info["text"]), first)
     try:
         if info["audio"]:
             log.info("voice note from %s — decrypting", _mask(to))
@@ -97,7 +99,7 @@ async def _handle(event: dict, info: dict) -> None:
             log.info("downloaded %d bytes — transcoding", len(raw))
             mp3_in = to_mp3(raw)
             log.info("calling gpt-audio")
-            reply_mp3, transcript = await brain.respond_to_audio(history.get(info["remote_jid"]), mp3_in)
+            reply_mp3, transcript = await brain.respond_to_audio(history.get(info["remote_jid"]), mp3_in, first=first)
             history.add_user_audio_marker(info["remote_jid"])
             history.add_assistant(info["remote_jid"], transcript)
             fid = _put_media(reply_mp3)
@@ -108,7 +110,7 @@ async def _handle(event: dict, info: dict) -> None:
             await wasender.send_audio(to, audio_url)
         elif info["text"]:
             log.info("text from %s (%d chars)", _mask(to), len(info["text"]))
-            reply = await brain.respond_to_text(history.get(info["remote_jid"]), info["text"])
+            reply = await brain.respond_to_text(history.get(info["remote_jid"]), info["text"], first=first)
             history.add_user_text(info["remote_jid"], info["text"])
             history.add_assistant(info["remote_jid"], reply)
             if reply:
