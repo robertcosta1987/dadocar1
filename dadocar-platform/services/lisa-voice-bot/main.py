@@ -78,11 +78,20 @@ def _extract(event: dict) -> dict | None:
     }
 
 
+def _mask(jid: str) -> str:
+    """Mask a JID/number for logs — keep enough to debug, not the full PII."""
+    d = "".join(c for c in (jid or "").split("@")[0] if c.isdigit())
+    return (d[:4] + "***" + d[-2:]) if len(d) >= 6 else "***"
+
+
 async def _handle(event: dict, info: dict) -> None:
-    to = _jid_to_to(info["remote_jid"])
+    # Reply to the FULL original JID (WaSender accepts JIDs). Stripping to digits
+    # breaks @lid senders (privacy IDs that aren't phone numbers).
+    to = info["remote_jid"]
+    log.info("inbound id=%s audio=%s text=%s", _mask(info["remote_jid"]), bool(info["audio"]), bool(info["text"]))
     try:
         if info["audio"]:
-            log.info("voice note from %s — decrypting", to)
+            log.info("voice note from %s — decrypting", _mask(to))
             url = await wasender.decrypt_media(event)
             raw = await wasender.download(url)
             log.info("downloaded %d bytes — transcoding", len(raw))
@@ -98,14 +107,14 @@ async def _handle(event: dict, info: dict) -> None:
             if transcript:
                 await wasender.send_text(to, transcript)
         elif info["text"]:
-            log.info("text from %s: %.60s", to, info["text"])
+            log.info("text from %s (%d chars)", _mask(to), len(info["text"]))
             reply = await brain.respond_to_text(history.get(info["remote_jid"]), info["text"])
             history.add_user_text(info["remote_jid"], info["text"])
             history.add_assistant(info["remote_jid"], reply)
             if reply:
                 await wasender.send_text(to, reply)
     except Exception as e:  # noqa: BLE001 — never crash the worker; log clearly
-        log.exception("handler failed for %s: %s", to, e)
+        log.exception("handler failed for %s: %s", _mask(to), e)
         try:
             await wasender.send_text(to, "Desculpa, tive um probleminha pra responder agora. Pode tentar de novo? 🙏")
         except Exception:
@@ -139,6 +148,7 @@ async def webhook(request: Request, bg: BackgroundTasks, x_webhook_signature: st
         event = await request.json()
     except Exception:
         return {"ok": True}  # ignore unparseable; never make WaSender retry
+    log.info("webhook event=%s", event.get("event"))  # metadata only — never log the body/JID
 
     info = _extract(event)
     if not info or info["from_me"] or info["is_group"] or not info["remote_jid"]:
