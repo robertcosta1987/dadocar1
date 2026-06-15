@@ -1,0 +1,28 @@
+# Render Blueprint. In Render: New + → Blueprint (or New Web Service → set
+# Root Directory = services/lisa-voice-bot, Runtime = Docker). Fill the sync:false
+# secrets, then set PUBLIC_BASE_URL to the service's URL after the first deploy.
+services:
+  - type: web
+    name: lisa-voice-bot
+    runtime: docker
+    rootDir: services/lisa-voice-bot
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY        # same key as the Placas360 web bot
+        sync: false
+      - key: WASENDER_API_KEY      # same WaSender session key
+        sync: false
+      - key: WASENDER_WEBHOOK_SECRET
+        sync: false
+      - key: PUBLIC_BASE_URL       # e.g. https://lisa-voice-bot.onrender.com (set after 1st deploy)
+        sync: false
+      - key: WASENDER_API_BASE
+        value: https://www.wasenderapi.com/api
+      - key: OPENAI_AUDIO_MODEL
+        value: gpt-audio
+      - key: OPENAI_MODEL
+        value: gpt-5-mini
+      - key: OPENAI_VOICE
+        value: coral
