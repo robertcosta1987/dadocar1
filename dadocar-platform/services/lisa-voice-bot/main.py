@@ -54,8 +54,9 @@ def _seen_before(msg_id: str) -> bool:
 
 
 def _jid_to_to(remote_jid: str) -> str:
+    # WaSender's send-message expects digits only (no "+").
     digits = "".join(ch for ch in remote_jid.split("@")[0] if ch.isdigit())
-    return f"+{digits}" if digits else remote_jid
+    return digits or remote_jid
 
 
 def _extract(event: dict) -> dict | None:
