@@ -4,8 +4,8 @@ Loop (per the architecture):
   WaSender -> POST /webhook  (messages.received)
   -> if audio: decrypt-media -> download OGG -> ffmpeg to mp3 -> gpt-audio
      -> store reply mp3, serve at GET /media/{id}.mp3 -> WaSender send-audio(audioUrl)
-     -> also send the transcript as a text fallback
   -> if text: gpt-5-mini text reply -> WaSender send-text
+  The bot mirrors the user's modality: audio in → audio only, text in → text only.
 Heavy work runs in a BackgroundTask so the webhook returns 200 immediately
 (WaSender won't retry); inbound message ids are de-duplicated.
 """
@@ -103,9 +103,9 @@ async def _handle(event: dict, info: dict) -> None:
             fid = _put_media(reply_mp3)
             audio_url = f"{PUBLIC_BASE_URL}/media/{fid}.mp3"
             log.info("sending audio reply -> %s", audio_url)
+            # Audio in → audio out ONLY. The transcript is kept in history for
+            # context, but we don't send it as text (mirror the user's modality).
             await wasender.send_audio(to, audio_url)
-            if transcript:
-                await wasender.send_text(to, transcript)
         elif info["text"]:
             log.info("text from %s (%d chars)", _mask(to), len(info["text"]))
             reply = await brain.respond_to_text(history.get(info["remote_jid"]), info["text"])
