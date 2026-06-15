@@ -1,8 +1,10 @@
 # pricing-function-checktudo
 
 Azure Function App: **CheckTudo vehicle-data integration**. Looks up a Brazilian
-plate (or chassi) against the [CheckTudo](https://api.checktudo.com.br) async
-query API for a **selectable product** (querycode) and returns the result JSON.
+plate (or chassi) against the [CheckTudo](https://api.checktudo.com.br)
+**synchronous** query API (`POST /api/vehicle/{userId}`) for a **selectable
+product** (querycode) and returns the result JSON inline — markedly faster than
+the old async order→poll flow.
 
 This is a **separate, independent** Function App from the KBB/Molicar
 `pricing-function` — same resource group, mirrored structure, but its own app,
@@ -23,14 +25,14 @@ services/pricing-function-checktudo
     │   ├── secrets.js              # Key Vault reader, 5-min in-memory cache
     │   └── validation.js           # plate / VIN / CPF regex + normalisers
     └── providers/
-        └── checktudo.js            # login → order → poll, product catalog
+        └── checktudo.js            # login → sync vehicle query, product catalog
 ```
 
 ## HTTP surface
 
 | Method | Path                                          | Auth      | Description                                                            |
 | ------ | --------------------------------------------- | --------- | --------------------------------------------------------------------- |
-| GET    | `/api/checktudo/plate/{plate}?product=<code>` | function  | Async order→poll lookup by plate. `product` = querycode (default 66). |
+| GET    | `/api/checktudo/plate/{plate}?product=<code>` | function  | Synchronous lookup by plate. `product` = querycode (default 66). |
 | GET    | `/api/checktudo/vin/{vin}?product=<code>`     | function  | Same, keyed by chassi (VIN).                                          |
 | GET    | `/api/products`                               | function  | Selectable querycodes + display names + default.                     |
 | GET    | `/api/health`                                 | anonymous | Liveness. Leaks nothing about credentials.                           |
@@ -75,20 +77,22 @@ expose more.
 
 ## CheckTudo API flow (verified live)
 
-1. `POST /auth/login { username, password }` → `body.token` (JWT, ~24h). This
-   token is the `Authorization` header value for every `/api/query/*` call
-   (raw, no `Bearer ` prefix).
-2. `POST /api/query/order` `{ querycode, keys: { placa | chassi }, duplicity:false }`
-   → `body { orderId, queryId, status:"enqueued" }`.
-3. `GET /api/query/json-response/:queryId` → `body { refClass, responseJSON }`
-   once complete; polled until ready or a 28s budget expires.
+1. `POST /auth/login { username, password }` → `body.token` (JWT, ~24h) and
+   `body.user._id` (the integration account id). The token is the `Authorization`
+   header value for every query call (raw, no `Bearer ` prefix).
+2. `POST /api/vehicle/{userId}` `{ querycode, keys: { placa | chassi } }`
+   → `{ status: { cod }, body: { headerInfos: { queryid, isAsyncQuery },
+   data, billing, error } }`. **Synchronous** — the result is returned inline.
+   - `cod 200` → full data inline (first query for a plate+product).
+   - `cod 206` → the vendor deduped a recently-run plate+product (anti re-bill)
+     and returns **no inline data**, but the `headerInfos.queryid` lets us
+     recover the canonical result via
+     `GET /api/query/json-response/{queryId}` — not billed.
+3. Async fallback: if a product is ever flagged `isAsyncQuery` with no inline
+   data, we poll `GET /api/query/json-response/{queryId}` until it lands.
 
-`duplicity:false` reuses a recently-run document to avoid re-billing.
-
-> The printed manual's `generate-api-key` step belongs to the **synchronous**
-> `/api/vehicle/:userid` path and is **not** used here. Proven: the order
-> endpoint returns `410 Consulta inválida` (auth OK) with the login token and
-> `401 Token de navegação inválido` with the apiKey.
+All requests carry browser-like headers (User-Agent + Origin + Referer) because
+CheckTudo sits behind Cloudflare, which can `1010`-block non-browser signatures.
 
 ## Secrets (Key Vault)
 

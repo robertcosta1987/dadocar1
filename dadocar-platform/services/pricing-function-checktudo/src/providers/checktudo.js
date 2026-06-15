@@ -1,34 +1,31 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // providers/checktudo.js — CheckTudo vehicle-data integration.
 //
-// CheckTudo's query API is ASYNCHRONOUS: you enqueue an "order" and then either
-// receive a webhook callback OR poll for the result. We present a synchronous
-// API to the webclient by polling `GET /api/query/json-response/:queryId`
-// until the result lands or a time budget runs out.
+// We use CheckTudo's SYNCHRONOUS query endpoint for ALL products: a single
+// POST returns the completed result inline (no order + poll). Verified live to
+// be markedly faster than the old async order→poll flow.
 //
-// Auth + flow (verified live against api.checktudo.com.br, see the function
-// README and docs/superpowers/specs/2026-06-04-checktudo-integration-design.md):
+// Auth + flow (verified live against api.checktudo.com.br):
 //
-//   1. POST /auth/login { username, password }            → body.token
-//      The token is a JWT (~24h). It is the value of the `Authorization`
-//      header for EVERY /api/query/* call — raw, no "Bearer " prefix.
+//   1. POST /auth/login { username, password }
+//      → body.token          (JWT, ~24h — the raw `Authorization` value, no Bearer)
+//      → body.user._id       (the integration account id used in the query path)
 //
-//   2. POST /api/query/order
-//        headers: { Authorization: <token> }
-//        body:    { querycode: <int>, keys: { placa | chassi | uf | ... },
-//                   duplicity: false }
-//      → body { orderId, queryId, status: "enqueued", createdAt }
-//      (`duplicity:false` reuses a recently-run document → avoids re-billing.)
+//   2. POST /api/vehicle/{userId}
+//        headers: { Authorization: <token>, + browser headers (Cloudflare) }
+//        body:    { querycode: <int>, keys: { placa | chassi | ... } }
+//      → { status: { cod }, body: { headerInfos: { queryid, isAsyncQuery },
+//          data: {…}, billing, error } }
+//      `cod` 200 = full data; 206 = partial (ran, but some/all services had no
+//      records — data still returned). The result is returned INLINE.
 //
-//   3. GET /api/query/json-response/:queryId
-//        headers: { Authorization: <token> }
-//      → body { _id, refClass, responseJSON: {…} } once the query completes;
-//        a pending body / 404 while it is still processing.
+// Async fallback: if the vendor ever flags a product as async (isAsyncQuery:true
+// with no inline data), we fall back to polling GET /api/query/json-response/
+// {queryId}. In practice the sync endpoint returns data directly for every
+// product we offer.
 //
-// NOTE: the `generate-api-key` step from the printed manual belongs to the
-// SYNCHRONOUS /api/vehicle/:userid path and is NOT used here. Proven: the order
-// endpoint returns 410 "Consulta inválida" (auth OK) with the login token, and
-// 401 "Token de navegação inválido" with the apiKey.
+// Browser headers (User-Agent + Origin + Referer) are sent on every request:
+// CheckTudo sits behind Cloudflare, which can 1010-block non-browser signatures.
 // ─────────────────────────────────────────────────────────────────────────────
 "use strict";
 
@@ -38,15 +35,26 @@ const AUTH_BASE     = "https://api.checktudo.com.br";
 const API_BASE      = "https://api.checktudo.com.br/api";
 const FETCH_TIMEOUT = 20 * 1000;
 
-// Time we wait for a CheckTudo result per call. This function app severs
-// synchronous HTTP at ~60s (NOT the 230s the docs imply), so a single call
-// cannot poll longer than that. We stay safely under it at 45s; slow products
-// (241 Decod V.4, 2090 Dados Básicos) that need more are handled by the caller
-// RE-CALLING — submitOrder then returns 206 (duplicate) and we resume polling
-// the SAME queryId via findExistingQueryId (no re-charge). The webclient loops
-// these short calls within its 300s maxDuration until the result lands.
+// The synchronous /api/vehicle call waits for the full result server-side. This
+// function app severs synchronous HTTP at ~60s, so we time the vendor call out a
+// little under that. Real calls return in a few seconds; this is just a ceiling.
+const VEHICLE_TIMEOUT_MS = 55 * 1000;
+
+// Polling knobs for the rare async-fallback path (kept for slow/async products).
 const POLL_BUDGET_MS   = 45 * 1000;
 const POLL_INTERVAL_MS = 1500;
+
+// Browser-like headers so Cloudflare doesn't 1010-block the request signature.
+const BROWSER_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  Origin: "https://app.checktudo.com.br",
+  Referer: "https://app.checktudo.com.br/",
+};
+
+/** Standard JSON headers for an authenticated query call. */
+function authHeaders(token) {
+  return { "Content-Type": "application/json", Accept: "application/json", Authorization: token, ...BROWSER_HEADERS };
+}
 
 const SECRET_NAMES = ["checktudo-username", "checktudo-password"];
 
@@ -117,9 +125,11 @@ function productName(code) {
   return PRODUCTS[Number(code)] || `Consulta ${code}`;
 }
 
-// In-process navigation-token cache. The JWT lives ~24h; we refresh a little
-// early and also re-login on any 401 from the query endpoints.
+// In-process auth cache: the JWT (~24h) and the integration account id (userId)
+// that the /api/vehicle/{userId} path needs. We refresh a little early and also
+// re-login on any 401 from the query endpoints.
 let _token   = null;
+let _userId  = null;
 let _tokenAt = 0;
 const TOKEN_TTL = 23 * 60 * 60 * 1000; // 23h
 
@@ -156,7 +166,7 @@ async function login() {
   }
   const res = await fetchWithTimeout(`${AUTH_BASE}/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...BROWSER_HEADERS },
     body: JSON.stringify({ username: c.username, password: c.password }),
   });
   if (!res.ok) {
@@ -167,14 +177,20 @@ async function login() {
   }
   const json = await res.json();
   const tok  = json?.body?.token;
+  const uid  = json?.body?.user?._id;
   if (!tok) throw new Error("CheckTudo /auth/login returned no token field");
+  if (!uid) throw new Error("CheckTudo /auth/login returned no user._id field");
   _token   = tok;
+  _userId  = uid;
   _tokenAt = Date.now();
-  return tok;
+  return { token: tok, userId: uid };
 }
 
-async function getToken({ force = false } = {}) {
-  if (!force && _token && Date.now() - _tokenAt < TOKEN_TTL) return _token;
+/** Cached { token, userId }; re-logs in when forced or the cache is stale. */
+async function getAuth({ force = false } = {}) {
+  if (!force && _token && _userId && Date.now() - _tokenAt < TOKEN_TTL) {
+    return { token: _token, userId: _userId };
+  }
   return login();
 }
 
@@ -187,63 +203,60 @@ function vendorMessage(json, fallback) {
   return fallback;
 }
 
-async function submitOrder(querycode, keys, token) {
-  const res = await fetchWithTimeout(`${API_BASE}/query/order`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: token, Accept: "application/json" },
-    body: JSON.stringify({ querycode: Number(querycode), keys, duplicity: false }),
-  });
-  const json = await res.json().catch(() => ({}));
-  // 206 "Consulta executada recentemente" — with duplicity:false the vendor
-  // refuses to re-run (and re-bill) a recently-queried document. We don't want
-  // to pay for a duplicate, so signal the caller to fetch the EXISTING result.
-  if (res.status === 206 || json?.status?.cod === 206) {
-    return { ok: false, duplicate: true, status: 206, message: vendorMessage(json, "Consulta executada recentemente") };
-  }
-  if (!res.ok) {
-    return {
-      ok: false,
-      status: res.status,
-      message: vendorMessage(json, `CheckTudo order HTTP ${res.status}`),
-      json,
-    };
-  }
-  const body = json?.body || {};
-  // Some products may return the completed payload inline; most enqueue.
-  if (body.responseJSON || body.data) {
-    return { ok: true, completed: true, status: res.status, queryId: body.queryId || body._id, body, json };
-  }
-  if (body.queryId) {
-    return { ok: true, completed: false, status: res.status, queryId: body.queryId, orderId: body.orderId, json };
-  }
-  return { ok: false, status: res.status, message: "Unexpected CheckTudo order response shape", json };
-}
-
 /**
- * Find the most recent existing query for a document key (placa/chassi) that
- * matches the requested querycode — used to recover the result on a 206
- * "executada recentemente" without re-billing. Returns a queryId or null.
+ * Run a query synchronously via POST /api/vehicle/{userId}. Returns the result
+ * INLINE — no order/poll. `cod` 200 = full data, 206 = partial (ran but some
+ * services had no records; data still present). On a vendor-flagged async product
+ * (isAsyncQuery + no inline data) we return the queryId so the caller can poll.
  */
-async function findExistingQueryId(key, querycode, token) {
-  if (!key) return null;
+async function vehicleQuery(userId, querycode, keys, token) {
   const res = await fetchWithTimeout(
-    `${API_BASE}/query/document/${encodeURIComponent(key)}`,
-    { method: "GET", headers: { Authorization: token, Accept: "application/json" } },
+    `${API_BASE}/vehicle/${encodeURIComponent(userId)}`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ querycode: Number(querycode), keys }),
+    },
+    VEHICLE_TIMEOUT_MS,
   );
-  if (!res.ok) return null;
   const json = await res.json().catch(() => ({}));
-  const list = Array.isArray(json?.body) ? json.body : [];
-  const matches = list
-    .filter((q) => Number(q.queryCode) === Number(querycode))
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  const best = matches.find((q) => q.status === true) || matches[0];
-  return best ? best.queryId : null;
+  const cod  = json?.status?.cod;
+  const body = json?.body || {};
+
+  // Treat any 2xx vendor code (200 ok, 206 partial) over a 2xx HTTP status as
+  // success. Everything else (401 stale token, 404 not found, 4xx/5xx) is an error.
+  const codOk = typeof cod === "number" ? cod >= 200 && cod < 300 : res.ok;
+  if (!res.ok || !codOk) {
+    return { ok: false, status: cod || res.status, message: vendorMessage(json, `CheckTudo vehicle HTTP ${res.status}`), json };
+  }
+
+  const header  = body.headerInfos || {};
+  const queryId = header.queryid || header.queryId || body._id || null;
+  let   data    = body.data || body.responseJSON || null;
+  // An empty object is "no inline data" — the vendor returns cod 206 with no
+  // inline payload when it dedups a recently-run plate+product (anti re-bill).
+  if (data && typeof data === "object" && Object.keys(data).length === 0) data = null;
+
+  // A vendor-side error string with no data → surface as a failure.
+  if (!data && body.error) {
+    return { ok: false, status: cod || res.status, message: String(body.error), json };
+  }
+  // No inline data but we have the queryId (deduped 206, or an async product) →
+  // recover the canonical result via GET json-response/{queryId} (no re-bill).
+  if (!data && queryId) {
+    return { ok: true, recoverById: true, status: cod || res.status, queryId, json };
+  }
+  // Inline synchronous result (the fast first-query path; may be partial @206).
+  if (data) {
+    return { ok: true, status: cod || res.status, queryId, data, json };
+  }
+  return { ok: false, status: cod || res.status, message: vendorMessage(json, "CheckTudo returned no data"), json };
 }
 
 async function fetchResult(queryId, token) {
   const res = await fetchWithTimeout(
     `${API_BASE}/query/json-response/${encodeURIComponent(queryId)}`,
-    { method: "GET", headers: { Authorization: token, Accept: "application/json" } },
+    { method: "GET", headers: { Authorization: token, Accept: "application/json", ...BROWSER_HEADERS } },
   );
   // A 404 while the query is still processing is normal — treat as pending.
   if (res.status === 404) return { ok: false, status: 404, pending: true };
@@ -273,16 +286,17 @@ async function pollUntilReady(queryId, token, budgetMs = POLL_BUDGET_MS) {
 }
 
 /**
- * Run a CheckTudo query end-to-end (login → order → poll).
+ * Run a CheckTudo query end-to-end synchronously (login → vehicle query).
+ * Falls back to polling only for vendor-flagged async products.
  * @param {number} querycode
  * @param {object} keys  e.g. { placa } or { chassi }
  */
 async function runQuery(querycode, keys) {
   const t0 = Date.now();
 
-  let token;
+  let token, userId;
   try {
-    token = await getToken();
+    ({ token, userId } = await getAuth());
   } catch (err) {
     return {
       ok: false,
@@ -293,95 +307,59 @@ async function runQuery(querycode, keys) {
     };
   }
 
-  let order = await submitOrder(querycode, keys, token);
+  let resp = await vehicleQuery(userId, querycode, keys, token);
 
-  // Stale token → re-login once and retry the order.
-  if (!order.ok && order.status === 401) {
-    try { token = await getToken({ force: true }); }
+  // Stale token → re-login once and retry.
+  if (!resp.ok && resp.status === 401) {
+    try { ({ token, userId } = await getAuth({ force: true })); }
     catch (err) {
       return { ok: false, error: "auth_failed", message: err.message, upstream_status: 401, latency_ms: Date.now() - t0 };
     }
-    order = await submitOrder(querycode, keys, token);
+    resp = await vehicleQuery(userId, querycode, keys, token);
   }
 
-  // 206 duplicate → recover the existing result instead of paying for a re-run.
-  if (!order.ok && order.duplicate) {
-    const key = keys.placa || keys.chassi || keys.renavam || keys.motor || null;
-    const existingId = await findExistingQueryId(key, querycode, token);
-    if (existingId) {
-      const result = await pollUntilReady(existingId, token);
-      if (result.ok) {
-        return {
-          ok: true,
-          data: result.data,
-          refClass: result.refClass,
-          queryId: existingId,
-          upstream_status: 200,
-          latency_ms: Date.now() - t0,
-          cached_upstream: true,
-          reused_upstream: true,
-        };
-      }
+  if (!resp.ok) {
+    return {
+      ok: false,
+      error: `vehicle_${resp.status}`,
+      message: typeof resp.message === "string" ? resp.message : "CheckTudo vehicle query failed",
+      upstream_status: resp.status,
+      latency_ms: Date.now() - t0,
+    };
+  }
+
+  // No inline data (deduped 206 or async product) → recover the canonical
+  // result via json-response by queryId. Not billed; usually returns at once.
+  if (resp.recoverById) {
+    const result = await pollUntilReady(resp.queryId, token);
+    if (!result.ok) {
       return {
         ok: false,
         error: result.pending ? "poll_timeout" : `result_${result.status}`,
-        message: result.message || "Falha ao recuperar a consulta existente.",
+        message: result.message || "CheckTudo result fetch failed",
         upstream_status: result.status,
-        queryId: existingId,
+        queryId: resp.queryId,
         latency_ms: Date.now() - t0,
       };
     }
     return {
-      ok: false,
-      error: "duplicate_no_result",
-      message: order.message || "Consulta executada recentemente, sem resultado recuperável.",
-      upstream_status: 206,
-      latency_ms: Date.now() - t0,
-    };
-  }
-
-  if (!order.ok) {
-    return {
-      ok: false,
-      error: `order_${order.status}`,
-      message: typeof order.message === "string" ? order.message : "CheckTudo order failed",
-      upstream_status: order.status,
-      latency_ms: Date.now() - t0,
-    };
-  }
-
-  if (order.completed) {
-    const data = order.body.responseJSON || order.body.data || order.body;
-    return {
       ok: true,
-      data,
-      queryId: order.queryId,
-      upstream_status: order.status,
-      latency_ms: Date.now() - t0,
-      cached_upstream: true,
-    };
-  }
-
-  const result = await pollUntilReady(order.queryId, token);
-  if (!result.ok) {
-    return {
-      ok: false,
-      error: result.pending ? "poll_timeout" : `result_${result.status}`,
-      message: result.message || "CheckTudo result fetch failed",
+      data: result.data,
+      refClass: result.refClass,
+      queryId: resp.queryId,
       upstream_status: result.status,
-      queryId: order.queryId,
       latency_ms: Date.now() - t0,
+      poll_attempts: result.attempts,
     };
   }
 
+  // Synchronous result (the common path).
   return {
     ok: true,
-    data: result.data,
-    refClass: result.refClass,
-    queryId: order.queryId,
-    upstream_status: result.status,
+    data: resp.data,
+    queryId: resp.queryId,
+    upstream_status: resp.status,
     latency_ms: Date.now() - t0,
-    poll_attempts: result.attempts,
   };
 }
 
@@ -402,7 +380,7 @@ async function lookupByVin(vin, querycode = DEFAULT_PRODUCT) {
 async function pollResultById(queryId) {
   const t0 = Date.now();
   let token;
-  try { token = await getToken(); }
+  try { ({ token } = await getAuth()); }
   catch (err) {
     return { ok: false, error: "auth_failed", message: err.message, upstream_status: err.upstreamStatus ?? null, latency_ms: Date.now() - t0 };
   }
