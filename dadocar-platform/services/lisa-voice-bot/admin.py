@@ -9,6 +9,7 @@ a tiny HTML console at GET /admin. Secrets are never echoed back in full.
   DELETE /admin/tenants/{id}[?hard=1]   deactivate (soft) or delete (hard)
   GET    /admin/tenants/{id}/usage?period=YYYY-MM
 """
+import hmac
 import logging
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response
@@ -27,7 +28,8 @@ def _auth(authorization: str | None) -> None:
     if not LISA_ADMIN_TOKEN:
         raise HTTPException(503, "admin disabled: LISA_ADMIN_TOKEN not configured")
     token = (authorization or "").removeprefix("Bearer ").strip()
-    if not token or token != LISA_ADMIN_TOKEN:
+    # Constant-time compare to avoid leaking the token via response timing.
+    if not token or not hmac.compare_digest(token, LISA_ADMIN_TOKEN):
         raise HTTPException(401, "unauthorized")
 
 
