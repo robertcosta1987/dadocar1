@@ -24,6 +24,39 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
 MAX_HISTORY = int(os.getenv("MAX_HISTORY", "12"))  # messages kept per contact
 
+# ── White-label multi-tenant: store, admin, plans, metering ──────────────────
+# Separate lightweight store: Azure Table Storage (serverless, pure-Python SDK).
+# When the connection string is absent we fall back to an in-memory store so the
+# bot still runs locally / in single-tenant mode (NOT durable — set it in prod).
+LISA_STORE_CONN = os.getenv("LISA_STORE_CONN", "")
+# Bearer token guarding the /admin tenant-management API + console.
+LISA_ADMIN_TOKEN = os.getenv("LISA_ADMIN_TOKEN", "")
+
+# The owner tenant, seeded from the existing single-tenant env so the current Lisa
+# keeps working on the bare /webhook path. 0 caps = unlimited (it's our own bot).
+DEFAULT_TENANT_ID = os.getenv("LISA_DEFAULT_TENANT", "placas360")
+DEFAULT_TENANT_NAME = os.getenv("LISA_DEFAULT_TENANT_NAME", "Placas360")
+DEFAULT_VOICE_MIN = int(os.getenv("LISA_DEFAULT_VOICE_MIN", "0"))   # 0 = unlimited
+DEFAULT_TEXT_MSGS = int(os.getenv("LISA_DEFAULT_TEXT_MSGS", "0"))   # 0 = unlimited
+
+# Plan template for NEW white-label customers (what the admin pre-fills).
+PLAN_VOICE_MIN = int(os.getenv("LISA_PLAN_VOICE_MIN", "100"))       # 100 voice minutes
+PLAN_TEXT_MSGS = int(os.getenv("LISA_PLAN_TEXT_MSGS", "500"))       # 500 text messages
+
+# OpenAI unit prices (USD / 1M tokens) — used only to compute the cost we book per
+# tenant so the admin can see margin. Audio tokens: 100 ms in / 50 ms out per token.
+PRICE_AUDIO_IN = float(os.getenv("PRICE_AUDIO_IN", "32"))
+PRICE_AUDIO_OUT = float(os.getenv("PRICE_AUDIO_OUT", "64"))
+PRICE_TEXT_IN = float(os.getenv("PRICE_TEXT_IN", "2.5"))
+PRICE_TEXT_OUT = float(os.getenv("PRICE_TEXT_OUT", "10"))
+PRICE_MINI_IN = float(os.getenv("PRICE_MINI_IN", "0.25"))
+PRICE_MINI_OUT = float(os.getenv("PRICE_MINI_OUT", "2"))
+
+# Throttle notices (PT-BR). {reset} is filled with the renewal date. Tenants may
+# override these per-brand in their config.
+THROTTLE_VOICE_MSG = os.getenv("LISA_THROTTLE_VOICE", "Oi! Você atingiu o limite de minutos de voz do seu plano por enquanto. 🙏 Ele renova em {reset}. Se quiser liberar mais agora, fale com o nosso time. Por aqui, posso seguir te ajudando por *texto*!")
+THROTTLE_TEXT_MSG = os.getenv("LISA_THROTTLE_TEXT", "Oi! Você atingiu o limite de mensagens do seu plano por enquanto. 🙏 Ele renova em {reset}. Para liberar mais agora, fale com o nosso time.")
+
 # Lisa persona — spoken (PT-BR), short and warm. Mirrors the website bot's
 # knowledge but tuned for voice: no markdown read aloud; links go in the text reply.
 SYSTEM_PROMPT = os.getenv("LISA_SYSTEM_PROMPT", """\

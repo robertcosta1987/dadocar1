@@ -1,10 +1,14 @@
-"""main.py — FastAPI app for the Lisa WhatsApp voice bot.
+"""main.py — FastAPI app for the Lisa WhatsApp voice bot (white-label, multi-tenant).
 
 Loop (per the architecture):
-  WaSender -> POST /webhook  (messages.received)
-  -> if audio: decrypt-media -> download OGG -> ffmpeg to mp3 -> gpt-audio
-     -> store reply mp3, serve at GET /media/{id}.mp3 -> WaSender send-audio(audioUrl)
-  -> if text: gpt-5-mini text reply -> WaSender send-text
+  WaSender -> POST /webhook/<tenant_id>  (messages.received)   [/webhook = default tenant]
+  -> resolve tenant (brand, WaSender creds, plan caps, persona)
+  -> CHECK the tenant's plan cap BEFORE the paid call; if over → send a short text
+     notice and stop (throttle = notice + pause), so the customer never overpays and
+     we never eat unmetered cost.
+  -> if audio: decrypt-media -> OGG -> ffmpeg mp3 -> gpt-audio -> serve reply mp3 ->
+     WaSender send-audio(audioUrl);  if text: gpt-5-mini -> WaSender send-text
+  -> METER the exact billed tokens (seconds + USD) into the tenant's usage row.
   The bot mirrors the user's modality: audio in → audio only, text in → text only.
 Heavy work runs in a BackgroundTask so the webhook returns 200 immediately
 (WaSender won't retry); inbound message ids are de-duplicated.
@@ -17,16 +21,26 @@ from collections import OrderedDict
 
 from fastapi import BackgroundTasks, FastAPI, Header, Request, Response
 
+import admin
 import brain
 import history
+import tenancy
+import usage
 import wasender
 from audio import to_mp3
-from config import PUBLIC_BASE_URL, WASENDER_WEBHOOK_SECRET
+from config import PUBLIC_BASE_URL
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("lisa.main")
 
-app = FastAPI(title="Lisa WhatsApp Voice Bot")
+app = FastAPI(title="Lisa WhatsApp Voice Bot (white-label)")
+app.include_router(admin.router)
+
+
+@app.on_event("startup")
+async def _startup():
+    tenancy.ensure_default_tenant()
+
 
 # In-memory media store (id -> (mp3 bytes, ts)) and inbound dedup set.
 _media: "OrderedDict[str, tuple[bytes, float]]" = OrderedDict()
@@ -51,12 +65,6 @@ def _seen_before(msg_id: str) -> bool:
     while len(_seen) > _SEEN_MAX:
         _seen.popitem(last=False)
     return False
-
-
-def _jid_to_to(remote_jid: str) -> str:
-    # WaSender's send-message expects digits only (no "+").
-    digits = "".join(ch for ch in remote_jid.split("@")[0] if ch.isdigit())
-    return digits or remote_jid
 
 
 def _extract(event: dict) -> dict | None:
@@ -84,41 +92,59 @@ def _mask(jid: str) -> str:
     return (d[:4] + "***" + d[-2:]) if len(d) >= 6 else "***"
 
 
-async def _handle(event: dict, info: dict) -> None:
+async def _handle(event: dict, info: dict, tenant: dict) -> None:
+    tid = tenant["tenant_id"]
+    key = tenant.get("wasender_api_key", "")
+    p = tenancy.persona(tenant)
     # Reply to the FULL original JID (WaSender accepts JIDs). Stripping to digits
     # breaks @lid senders (privacy IDs that aren't phone numbers).
     to = info["remote_jid"]
-    # First contact = no stored history yet → greet + mention she accepts audio.
-    first = not history.get(info["remote_jid"])
-    log.info("inbound id=%s audio=%s text=%s first=%s", _mask(info["remote_jid"]), bool(info["audio"]), bool(info["text"]), first)
+    first = not history.get(tid, info["remote_jid"])
+    log.info("[%s] inbound id=%s audio=%s text=%s first=%s", tid, _mask(to), bool(info["audio"]), bool(info["text"]), first)
     try:
         if info["audio"]:
-            log.info("voice note from %s — decrypting", _mask(to))
-            url = await wasender.decrypt_media(event)
+            # Plan gate BEFORE the paid call — throttle = notice + pause.
+            if tenancy.voice_blocked(tenant):
+                log.info("[%s] voice cap reached → throttling %s", tid, _mask(to))
+                await wasender.send_text(to, tenancy.voice_throttle_msg(tenant), key)
+                return
+            log.info("[%s] voice note from %s — decrypting", tid, _mask(to))
+            url = await wasender.decrypt_media(event, key)
             raw = await wasender.download(url)
-            log.info("downloaded %d bytes — transcoding", len(raw))
             mp3_in = to_mp3(raw)
-            log.info("calling gpt-audio")
-            reply_mp3, transcript = await brain.respond_to_audio(history.get(info["remote_jid"]), mp3_in, first=first)
-            history.add_user_audio_marker(info["remote_jid"])
-            history.add_assistant(info["remote_jid"], transcript)
+            log.info("[%s] calling gpt-audio", tid)
+            reply_mp3, transcript, resp = await brain.respond_to_audio(
+                history.get(tid, info["remote_jid"]), mp3_in, first=first,
+                system_prompt=p["system_prompt"], first_turn=p["first_turn"],
+                voice=p["voice"], api_key=p["openai_api_key"])
+            # Meter the exact billed audio (seconds + USD) into the tenant's usage row.
+            tok = usage.parse(resp)
+            in_sec, out_sec = usage.audio_seconds(tok)
+            tenancy.record_voice(tenant, in_sec, out_sec, usage.audio_cost_usd(tok))
+            history.add_user_audio_marker(tid, info["remote_jid"])
+            history.add_assistant(tid, info["remote_jid"], transcript)
             fid = _put_media(reply_mp3)
             audio_url = f"{PUBLIC_BASE_URL}/media/{fid}.mp3"
-            log.info("sending audio reply -> %s", audio_url)
-            # Audio in → audio out ONLY. The transcript is kept in history for
-            # context, but we don't send it as text (mirror the user's modality).
-            await wasender.send_audio(to, audio_url)
+            log.info("[%s] reply audio %.1fs (in %.1fs) -> sending", tid, out_sec, in_sec)
+            await wasender.send_audio(to, audio_url, key)
         elif info["text"]:
-            log.info("text from %s (%d chars)", _mask(to), len(info["text"]))
-            reply = await brain.respond_to_text(history.get(info["remote_jid"]), info["text"], first=first)
-            history.add_user_text(info["remote_jid"], info["text"])
-            history.add_assistant(info["remote_jid"], reply)
+            if tenancy.text_blocked(tenant):
+                log.info("[%s] text cap reached → throttling %s", tid, _mask(to))
+                await wasender.send_text(to, tenancy.text_throttle_msg(tenant), key)
+                return
+            log.info("[%s] text from %s (%d chars)", tid, _mask(to), len(info["text"]))
+            reply, resp = await brain.respond_to_text(
+                history.get(tid, info["remote_jid"]), info["text"], first=first,
+                system_prompt=p["system_prompt"], first_turn=p["first_turn"], api_key=p["openai_api_key"])
+            tenancy.record_text(tenant, usage.text_cost_usd(usage.parse(resp)))
+            history.add_user_text(tid, info["remote_jid"], info["text"])
+            history.add_assistant(tid, info["remote_jid"], reply)
             if reply:
-                await wasender.send_text(to, reply)
+                await wasender.send_text(to, reply, key)
     except Exception as e:  # noqa: BLE001 — never crash the worker; log clearly
-        log.exception("handler failed for %s: %s", _mask(to), e)
+        log.exception("[%s] handler failed for %s: %s", tid, _mask(to), e)
         try:
-            await wasender.send_text(to, "Desculpa, tive um probleminha pra responder agora. Pode tentar de novo? 🙏")
+            await wasender.send_text(to, "Desculpa, tive um probleminha pra responder agora. Pode tentar de novo? 🙏", key)
         except Exception:
             pass
 
@@ -137,28 +163,42 @@ async def media(file_id: str):
     return Response(content=item[0], media_type="audio/mpeg")
 
 
-@app.post("/webhook")
-async def webhook(request: Request, bg: BackgroundTasks, x_webhook_signature: str | None = Header(default=None)):
-    # Verify the shared-secret signature (fail closed when a secret is configured).
-    if WASENDER_WEBHOOK_SECRET:
-        if not x_webhook_signature or not hmac.compare_digest(x_webhook_signature, WASENDER_WEBHOOK_SECRET):
-            return Response(status_code=401)
-    else:
-        log.warning("WASENDER_WEBHOOK_SECRET not set — webhook signature NOT verified")
+async def _webhook(tenant_id: str | None, request: Request, bg: BackgroundTasks, signature: str | None) -> dict:
+    tenant = tenancy.resolve(tenant_id)
+    if not tenant:
+        log.warning("webhook for unknown/inactive tenant '%s'", tenant_id)
+        return {"ok": True}  # never make WaSender retry
 
+    # Per-tenant shared-secret check (fail closed when that tenant has a secret).
+    secret = tenant.get("wasender_webhook_secret") or ""
+    if secret:
+        if not signature or not hmac.compare_digest(signature, secret):
+            return {"ok": True}  # silently drop bad-signature posts
     try:
         event = await request.json()
     except Exception:
-        return {"ok": True}  # ignore unparseable; never make WaSender retry
-    log.info("webhook event=%s", event.get("event"))  # metadata only — never log the body/JID
+        return {"ok": True}
+    log.info("[%s] webhook event=%s", tenant["tenant_id"], event.get("event"))
 
     info = _extract(event)
     if not info or info["from_me"] or info["is_group"] or not info["remote_jid"]:
         return {"ok": True}
     if not info["audio"] and not info["text"]:
-        return {"ok": True}  # ignore other message types gracefully
+        return {"ok": True}
     if info["id"] and _seen_before(info["id"]):
         return {"ok": True}
 
-    bg.add_task(_handle, event, info)
+    bg.add_task(_handle, event, info, tenant)
     return {"ok": True}
+
+
+@app.post("/webhook")
+async def webhook_default(request: Request, bg: BackgroundTasks, x_webhook_signature: str | None = Header(default=None)):
+    """Backward-compatible path → the default (owner) tenant."""
+    return await _webhook(None, request, bg, x_webhook_signature)
+
+
+@app.post("/webhook/{tenant_id}")
+async def webhook_tenant(tenant_id: str, request: Request, bg: BackgroundTasks, x_webhook_signature: str | None = Header(default=None)):
+    """Per-customer webhook — each WaSender session points here with its tenant id."""
+    return await _webhook(tenant_id, request, bg, x_webhook_signature)
