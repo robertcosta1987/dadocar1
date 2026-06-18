@@ -1,5 +1,11 @@
 # Lisa — WhatsApp voice bot (OpenAI speech‑to‑speech)
 
+> ⚠️ **Legacy / Placas360-feature lineage.** The canonical **white-label platform**
+> (multi-tenant, metered plans, `/admin` console) now lives in its own repo at
+> `present/LISA/lisa-whitelabel-platform/` and is what deploys to Azure
+> (`lisa-voice-bot` container app). Treat Placas360 as **tenant #1** of that
+> platform. New work happens there, not here.
+
 Receives WhatsApp **voice notes** and replies **with voice** using OpenAI's
 speech‑to‑speech model (`gpt-audio`) as the whole brain — one model call, no
 separate STT/LLM/TTS — with **WasenderAPI** as the WhatsApp gateway. Typed text
