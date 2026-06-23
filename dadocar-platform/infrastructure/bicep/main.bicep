@@ -1,10 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// main.bicep — Placas360 PRODUCTION environment (subscription-scoped)
+// main.bicep — Placas360 infra (subscription-scoped)
 //
-// NOTE: This Azure infra IS production for Placas360. The only "dev" environment
-// is the frontend preview on Vercel. Naming convention: placas360-<env> (env=prd).
-// The legacy 'dadocar-dev-*' resources are the same production stack pre-rename —
-// see docs/INFRA/RESOURCE_CATALOG.md for the rename/migration runbook.
+// NOTE: This Azure infra IS production for Placas360 (the only "dev" environment
+// is the frontend preview on Vercel). The DEFAULTS below intentionally keep the
+// current 'dadocar-<env>' names so a redeploy NEVER recreates/renames resources.
+// The placas360-prd-* rename target lives ONLY in prod.bicepparam — see
+// docs/INFRA/RESOURCE_CATALOG.md for the rename/migration runbook.
 //
 // Subscription-scoped so the resource group is declared as a resource.
 //
@@ -29,17 +30,17 @@ param env string = 'dev'
 @description('Azure region for the resource group and all resources.')
 param location string = 'brazilsouth'
 
-@description('Resource group name. Default: rg-placas360-<env>-brs.')
-param resourceGroupName string = 'rg-placas360-${env}-brs'
+@description('Resource group name. Default: rg-dadocar-<env>-brs (current stack; prod.bicepparam overrides to rg-placas360-prd-brs).')
+param resourceGroupName string = 'rg-dadocar-${env}-brs'
 
-@description('Resource name prefix. Default: placas360-<env>.')
-param namePrefix string = 'placas360-${env}'
+@description('Resource name prefix. Default: dadocar-<env> (current stack; prod.bicepparam overrides to placas360-prd).')
+param namePrefix string = 'dadocar-${env}'
 
 @description('APIM publisher email shown in the developer portal.')
-param apimPublisherEmail string = 'dpo@placas360.com.br'
+param apimPublisherEmail string = 'dpo@dadocar.com.br'
 
 @description('APIM publisher (organization) name shown in the developer portal.')
-param apimPublisherName string = 'Placas360'
+param apimPublisherName string = 'Dadocar'
 
 @description('Tenant ID of the Service Principal running the deployment.')
 param tenantId string = subscription().tenantId
@@ -47,12 +48,11 @@ param tenantId string = subscription().tenantId
 @description('Object ID of the deployer (Service Principal). Gets Key Vault Secrets Officer so secrets can be seeded later via az CLI without re-deploying Bicep.')
 param deployerPrincipalId string
 
-@description('Common tags applied to every resource.')
+@description('Common tags applied to every resource. (Param files set the production values: project=Placas360, env=prd.)')
 param tags object = {
-  project: 'Placas360'
+  project: 'dadocar'
   env: env
   managedBy: 'bicep'
-  costCenter: 'placas360-prod'
 }
 
 // ─── Resource Group ─────────────────────────────────────────────────────────
