@@ -1,9 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// dev.bicepparam — Dadocar DEV environment parameters
+// dev.bicepparam — the CURRENTLY-DEPLOYED stack (legacy 'dadocar-dev-*' names).
 //
-// The values here are baseline. Anything not overridden falls back to
-// main.bicep defaults. `deployerPrincipalId` is read from an env var so the
-// Service Principal running the deployment is never hardcoded in repo.
+// IMPORTANT: despite the names, this stack IS Placas360 PRODUCTION (the only
+// "dev" is the Vercel frontend preview). Names are kept here so a redeploy does
+// NOT recreate resources; the tags reflect production. The rename to
+// 'placas360-prd-*' is a migration (see prod.bicepparam + docs/INFRA/RESOURCE_CATALOG.md).
 // ─────────────────────────────────────────────────────────────────────────────
 using 'main.bicep'
 
@@ -27,8 +28,8 @@ param apimPublisherName  = 'Dadocar'
 param deployerPrincipalId = readEnvironmentVariable('DADOCAR_DEPLOYER_PRINCIPAL_ID', '')
 
 param tags = {
-  project:   'dadocar'
-  env:       'dev'
-  managedBy: 'bicep'
-  costCenter: 'dadocar-mvp'
+  project:    'Placas360'
+  env:        'prd'
+  managedBy:  'bicep'
+  costCenter: 'placas360-prod'
 }

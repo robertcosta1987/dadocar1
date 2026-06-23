@@ -33,9 +33,12 @@ param uniqueSuffix string
 @description('Function App Managed Identity principal ID — gets Cosmos Data Contributor')
 param functionPrincipalId string
 
+@description('Compact (no-hyphen, lowercase) name prefix, e.g. dadocardev or placas360prd')
+param compactPrefix string
+
 // Cosmos account names: 3-44 chars, lowercase alphanumerics + hyphens.
-// Compact form per the brief: dadocardevcosbrs + 4-char suffix.
-var cosmosName = 'dadocardevcosbrs${uniqueSuffix}'
+// Compact form: <compactPrefix>cosbrs + 4-char suffix (e.g. placas360prdcosbrs####).
+var cosmosName = '${compactPrefix}cosbrs${uniqueSuffix}'
 
 resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
   name: cosmosName

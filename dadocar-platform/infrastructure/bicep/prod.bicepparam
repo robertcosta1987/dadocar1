@@ -1,29 +1,29 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// prod.bicepparam — PLACEHOLDER ONLY. Not deployed by any script in MVP.
+// prod.bicepparam — Placas360 PRODUCTION (target naming: placas360-prd-*).
 //
-// When prod is in scope, this file will need:
-//   - APIM tier change from Consumption to Premium (multi-region, VNet)
-//   - Cosmos: multi-region writes + ZRS + autoscale RU
-//   - Storage: ZRS or GRS + soft delete
-//   - Key Vault: enablePurgeProtection set true
-//   - Event Hub: Standard or Premium tier with capture enabled
-//   - Distinct publisherEmail/publisherName
-//   - Distinct deployer SP with stricter scope
+// This is the deploy target for the resource RENAME/migration (dadocar-dev-* →
+// placas360-prd-*). Deploying it creates a NEW stack; data + consumers must then
+// be migrated and the old stack retired. See docs/INFRA/RESOURCE_CATALOG.md.
+//
+// Hardening recommended for a fresh prod build: APIM Premium, Cosmos multi-region
+// + autoscale, Storage ZRS/GRS + soft delete, KV purge protection, Event Hub
+// Standard + capture.
 // ─────────────────────────────────────────────────────────────────────────────
 using 'main.bicep'
 
-param env                = 'prod'
+param env                = 'prd'
 param location           = 'brazilsouth'
-param resourceGroupName  = 'rg-dadocar-prod-brs'
-param namePrefix         = 'dadocar-prod'
+param resourceGroupName  = 'rg-placas360-prd-brs'
+param namePrefix         = 'placas360-prd'
 
-param apimPublisherEmail = 'dpo@dadocar.com.br'
-param apimPublisherName  = 'Dadocar'
+param apimPublisherEmail = 'dpo@placas360.com.br'
+param apimPublisherName  = 'Placas360'
 
-param deployerPrincipalId = readEnvironmentVariable('DADOCAR_DEPLOYER_PRINCIPAL_ID', '')
+param deployerPrincipalId = readEnvironmentVariable('PLACAS360_DEPLOYER_PRINCIPAL_ID', '')
 
 param tags = {
-  project:   'dadocar'
-  env:       'prod'
-  managedBy: 'bicep'
+  project:    'Placas360'
+  env:        'prd'
+  managedBy:  'bicep'
+  costCenter: 'placas360-prod'
 }

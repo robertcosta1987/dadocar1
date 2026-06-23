@@ -1,5 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// main.bicep — Dadocar DEV environment (subscription-scoped)
+// main.bicep — Placas360 PRODUCTION environment (subscription-scoped)
+//
+// NOTE: This Azure infra IS production for Placas360. The only "dev" environment
+// is the frontend preview on Vercel. Naming convention: placas360-<env> (env=prd).
+// The legacy 'dadocar-dev-*' resources are the same production stack pre-rename —
+// see docs/INFRA/RESOURCE_CATALOG.md for the rename/migration runbook.
 //
 // Subscription-scoped so the resource group is declared as a resource.
 //
@@ -24,17 +29,17 @@ param env string = 'dev'
 @description('Azure region for the resource group and all resources.')
 param location string = 'brazilsouth'
 
-@description('Resource group name. Default: rg-dadocar-<env>-brs.')
-param resourceGroupName string = 'rg-dadocar-${env}-brs'
+@description('Resource group name. Default: rg-placas360-<env>-brs.')
+param resourceGroupName string = 'rg-placas360-${env}-brs'
 
-@description('Resource name prefix. Default: dadocar-<env>.')
-param namePrefix string = 'dadocar-${env}'
+@description('Resource name prefix. Default: placas360-<env>.')
+param namePrefix string = 'placas360-${env}'
 
 @description('APIM publisher email shown in the developer portal.')
-param apimPublisherEmail string = 'dpo@dadocar.com.br'
+param apimPublisherEmail string = 'dpo@placas360.com.br'
 
 @description('APIM publisher (organization) name shown in the developer portal.')
-param apimPublisherName string = 'Dadocar'
+param apimPublisherName string = 'Placas360'
 
 @description('Tenant ID of the Service Principal running the deployment.')
 param tenantId string = subscription().tenantId
@@ -44,9 +49,10 @@ param deployerPrincipalId string
 
 @description('Common tags applied to every resource.')
 param tags object = {
-  project: 'dadocar'
+  project: 'Placas360'
   env: env
   managedBy: 'bicep'
+  costCenter: 'placas360-prod'
 }
 
 // ─── Resource Group ─────────────────────────────────────────────────────────
@@ -60,6 +66,11 @@ resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
 // distinct per environment — perfect for the global-name suffix on storage,
 // key vault, and Cosmos.
 var uniqueSuffix = take(uniqueString(subscription().subscriptionId, resourceGroupName), 4)
+
+// Compact prefix for globally-named resources (storage/kv/cosmos): no hyphens,
+// lowercase. namePrefix 'dadocar-dev' → 'dadocardev' (current); 'placas360-prd'
+// → 'placas360prd'. Keeps existing names stable while enabling the rename.
+var compactPrefix = toLower(replace(namePrefix, '-', ''))
 
 // ─── Monitoring ─────────────────────────────────────────────────────────────
 module monitoring 'modules/monitoring.bicep' = {
@@ -77,9 +88,10 @@ module storage 'modules/storage.bicep' = {
   scope: rg
   name: 'storage'
   params: {
-    location:     location
-    tags:         tags
-    uniqueSuffix: uniqueSuffix
+    location:      location
+    tags:          tags
+    uniqueSuffix:  uniqueSuffix
+    compactPrefix: compactPrefix
   }
 }
 
@@ -116,6 +128,7 @@ module cosmos 'modules/cosmos.bicep' = {
     tags:                tags
     uniqueSuffix:        uniqueSuffix
     functionPrincipalId: functions.outputs.functionPrincipalId
+    compactPrefix:       compactPrefix
   }
 }
 
@@ -142,6 +155,7 @@ module keyvault 'modules/keyvault.bicep' = {
     tenantId:            tenantId
     deployerPrincipalId: deployerPrincipalId
     functionPrincipalId: functions.outputs.functionPrincipalId
+    compactPrefix:       compactPrefix
   }
 }
 

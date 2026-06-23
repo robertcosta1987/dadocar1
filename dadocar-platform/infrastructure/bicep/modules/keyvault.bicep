@@ -30,9 +30,12 @@ param functionPrincipalId string
 @description('Suffix derived from resourceGroup().id to avoid global-name collisions')
 param uniqueSuffix string
 
+@description('Compact (no-hyphen, lowercase) name prefix, e.g. dadocardev or placas360prd')
+param compactPrefix string
+
 // Globally unique. KV name must be 3-24 chars, alphanumerics + hyphens.
-// Compact form per the brief: dadocardevkvbrs + 4-char suffix.
-var kvName = 'dadocardevkvbrs${uniqueSuffix}'
+// Compact form: <compactPrefix>kvbrs + 4-char suffix (e.g. placas360prdkvbrs####).
+var kvName = '${compactPrefix}kvbrs${uniqueSuffix}'
 
 resource keyVault 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
   name: kvName

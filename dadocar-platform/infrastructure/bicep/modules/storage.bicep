@@ -19,9 +19,12 @@ param tags object
 @description('Suffix from uniqueString(resourceGroup().id) to avoid global-name collisions')
 param uniqueSuffix string
 
+@description('Compact (no-hyphen, lowercase) name prefix, e.g. dadocardev or placas360prd')
+param compactPrefix string
+
 // Storage names: 3-24 chars, lowercase alphanumerics only.
-// Compact form per the brief: dadocardevstbrs + 4-char suffix.
-var storageName = 'dadocardevstbrs${uniqueSuffix}'
+// Compact form: <compactPrefix>stbrs + 4-char suffix (e.g. placas360prdstbrs####).
+var storageName = '${compactPrefix}stbrs${uniqueSuffix}'
 
 resource storage 'Microsoft.Storage/storageAccounts@2024-01-01' = {
   name: storageName
