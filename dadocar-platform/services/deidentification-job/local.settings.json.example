@@ -1,0 +1,13 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "<storage connection string>",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "DATABASE_URL": "Server=tcp:<server>.database.windows.net,1433;Initial Catalog=<db>;User ID=<user>;Password=<pwd>;Encrypt=true;TrustServerCertificate=false",
+    "RETENTION_APPLY": "0",
+    "RETENTION_INCLUDE_ACCOUNTS": "1",
+    "LGPD_RETENTION_APILOG_DAYS": "365",
+    "LGPD_RETENTION_CONSULT_DAYS": "365",
+    "LGPD_RETENTION_INACTIVE_DAYS": "730"
+  }
+}

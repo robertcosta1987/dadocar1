@@ -1,0 +1,16 @@
+{
+  "name": "dadocar-deidentification-job",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Azure Function App: LGPD retention/de-identification job (Art. 15/16). Timer (daily) + HTTP trigger. Anonymizes PII in api_request_logs, deletes old vehicle consultations, and (opt-in) anonymizes inactive accounts. DRY-RUN by default; set RETENTION_APPLY=1 to execute. Mirrors apps/webclient/src/lib/lgpd/retention.ts.",
+  "main": "src/functions/*.js",
+  "scripts": {
+    "start": "func start",
+    "test": "echo \"no unit tests yet\" && exit 0"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@azure/functions": "^4.5.1",
+    "mssql": "^12.5.2"
+  }
+}
