@@ -9,7 +9,7 @@ Espelha a fonte da verdade em `apps/webclient/src/lib/lgpd/retention.ts` e o scr
 
 ## Gatilhos
 - **Timer:** diariamente às **03:00 UTC** (`0 0 3 * * *`).
-- **HTTP** (authLevel `function`): `GET/POST /api/retention?apply=1&accounts=1` — execução sob demanda.
+- **HTTP** (authLevel `function`): `GET/POST /api/retentionHttp?code=<key>[&apply=1][&accounts=1]` — execução sob demanda (sem `apply` = dry-run).
 
 ## Política (confirmada — OPEN_DECISIONS #2)
 | Dado | Ação | Janela |
@@ -26,8 +26,10 @@ Janelas sobrescrevíveis por env `LGPD_RETENTION_*_DAYS`.
 - Tudo parametrizado em `@cutoff`; nenhum dado pessoal é registrado em log.
 
 ## Configuração (App Settings)
-Ver `local.settings.json.example`. Essenciais: `DATABASE_URL`, `RETENTION_APPLY`,
-`RETENTION_INCLUDE_ACCOUNTS`. Recomenda-se obter `DATABASE_URL` do Key Vault.
+Ver `local.settings.json.example`. A connection string do banco vem do **Key Vault**
+(padrão do projeto): `KEYVAULT_URL` + `KV_SECRET_NAME` (segredo `webclient-database-url`),
+lidos via managed identity (role *Key Vault Secrets User*). Demais: `RETENTION_APPLY`,
+`RETENTION_INCLUDE_ACCOUNTS`. Para dev local, pode-se definir `DATABASE_URL` direto.
 
 ## Rodar localmente
 ```bash

@@ -13,7 +13,27 @@
 
 const { app } = require("@azure/functions");
 const sql = require("mssql");
+const { DefaultAzureCredential } = require("@azure/identity");
+const { SecretClient } = require("@azure/keyvault-secrets");
 const { loadRetention, cutoffIso, retentionTasks } = require("../lib/retention");
+
+// Resolve the DB connection string. Prefer a directly-provided DATABASE_URL
+// (local dev); otherwise fetch it from Key Vault via managed identity — the same
+// pattern the other functions use (KEYVAULT_URL + DefaultAzureCredential). Cached.
+let _dbUrl;
+async function resolveDbUrl() {
+  if (_dbUrl) return _dbUrl;
+  const direct = process.env.DATABASE_URL || "";
+  if (direct.includes("Server=")) { _dbUrl = direct; return _dbUrl; }
+  const kvUrl = process.env.KEYVAULT_URL;
+  if (!kvUrl) throw new Error("KEYVAULT_URL/DATABASE_URL não configurados");
+  const secretName = process.env.KV_SECRET_NAME || "webclient-database-url";
+  const client = new SecretClient(kvUrl, new DefaultAzureCredential());
+  const s = await client.getSecret(secretName);
+  _dbUrl = s.value || "";
+  if (!_dbUrl) throw new Error("segredo do banco vazio no Key Vault");
+  return _dbUrl;
+}
 
 function parseConnString(s) {
   const out = {};
@@ -40,8 +60,7 @@ function parseConnString(s) {
 }
 
 async function run(ctx, { apply, includeAccounts }) {
-  const cs = process.env.DATABASE_URL;
-  if (!cs) throw new Error("DATABASE_URL not set");
+  const cs = await resolveDbUrl();
   const now = new Date();
   const cfg = loadRetention(process.env);
   const tasks = retentionTasks(cfg).filter((t) => includeAccounts || !t.optIn);

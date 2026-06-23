@@ -3,7 +3,9 @@
   "Values": {
     "AzureWebJobsStorage": "<storage connection string>",
     "FUNCTIONS_WORKER_RUNTIME": "node",
-    "DATABASE_URL": "Server=tcp:<server>.database.windows.net,1433;Initial Catalog=<db>;User ID=<user>;Password=<pwd>;Encrypt=true;TrustServerCertificate=false",
+    "KEYVAULT_URL": "https://<keyvault-name>.vault.azure.net/",
+    "KV_SECRET_NAME": "webclient-database-url",
+    "DATABASE_URL": "(opcional p/ dev local: Server=tcp:...;Initial Catalog=...;User ID=...;Password=...;Encrypt=true) — em produção use o Key Vault acima",
     "RETENTION_APPLY": "0",
     "RETENTION_INCLUDE_ACCOUNTS": "1",
     "LGPD_RETENTION_APILOG_DAYS": "365",
