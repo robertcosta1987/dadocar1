@@ -83,6 +83,35 @@ async function run(ctx, { apply, includeAccounts }) {
         ctx.log(`[apply] ${t.key}: ${n} (corte < ${cutoff})`);
       }
     }
+
+    // Scrub owner PII from old cached payloads (rows are KEPT — the MOAT). Only
+    // in apply mode; bounded + idempotent (a scrubbed row no longer matches the
+    // PII pre-filter).
+    if (apply) {
+      const { scrubPayloadJson } = require("../lib/scrubPii");
+      const PII_LIKE = `(payload LIKE '%proprietario%' OR payload LIKE '%"cpf"%' OR payload LIKE '%"cnpj"%' OR payload LIKE '%documento%' OR payload LIKE '%nomeProprietario%')`;
+      const cutoff = cutoffIso(cfg.consultationDays, now);
+      for (const table of ["checktudo_consultas", "infocar_consultas", "kbb_consultas"]) {
+        let scrubbed = 0;
+        for (let batch = 0; batch < 200; batch++) {
+          const rows = (await pool.request().input("cutoff", sql.DateTime2, cutoff)
+            .query(`SELECT TOP 1000 CAST(id AS NVARCHAR(40)) AS id, payload FROM ${table} WHERE consulted_at < @cutoff AND ${PII_LIKE} ORDER BY consulted_at ASC`)).recordset;
+          if (rows.length === 0) break;
+          let changed = 0;
+          for (const r of rows) {
+            const s = scrubPayloadJson(r.payload);
+            if (s === r.payload) continue;
+            await pool.request().input("id", sql.UniqueIdentifier, r.id)
+              .input("payload", sql.NVarChar(sql.MAX), s)
+              .query(`UPDATE ${table} SET payload = @payload WHERE id = @id`);
+            changed++; scrubbed++;
+          }
+          if (changed === 0) break;
+        }
+        results.push({ task: `scrub_${table}`, mode: "apply", rows: scrubbed, cutoff });
+        ctx.log(`[apply] scrub_${table}: ${scrubbed}`);
+      }
+    }
   } finally {
     await pool.close();
   }
